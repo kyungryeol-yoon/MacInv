@@ -1,0 +1,90 @@
+package clean
+
+import (
+	"context"
+	"regexp"
+	"strings"
+
+	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+)
+
+// KindMas는 App Store(mas) 앱 타깃이다(업데이트 전용).
+const KindMas = "mas"
+
+// upgradeTimeoutSec는 업그레이드/설치 명령 타임아웃(30분)이다.
+// 대형 cask 다운로드 대비. 실행은 비동기+단일 큐라 UI에 영향 없고, 삭제·휴지통은 기본(300초) 유지.
+const upgradeTimeoutSec = 1800
+
+// BuildUpgradePlan은 name을 최신 버전으로 올리는 계획을 만든다(읽기 전용).
+// 소스별 네이티브 업그레이드 명령만 담고 삭제/휴지통은 없다. Execute·RenderPlanText를 삭제와 공유한다.
+func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan {
+	plan := &Plan{Query: name, Verb: "업데이트", Icon: "⬆️"}
+
+	if brewInstalled(ctx, run, name, false) {
+		plan.Targets = append(plan.Targets, Target{
+			Kind: KindBrewFormula, Name: name,
+			Commands:      []string{"brew upgrade " + name},
+			CmdTimeoutSec: upgradeTimeoutSec,
+		})
+	}
+	if brewInstalled(ctx, run, name, true) {
+		plan.Targets = append(plan.Targets, Target{
+			Kind: KindBrewCask, Name: name,
+			Commands:      []string{"brew upgrade --cask " + name},
+			CmdTimeoutSec: upgradeTimeoutSec,
+		})
+	}
+	if npmGlobalInstalled(ctx, run, name) {
+		plan.Targets = append(plan.Targets, npmUpgradeTarget(name))
+	}
+	if id, ok := masAppID(ctx, run, name); ok {
+		plan.Targets = append(plan.Targets, Target{
+			Kind: KindMas, Name: name,
+			Commands:      []string{"mas upgrade " + id},
+			CmdTimeoutSec: upgradeTimeoutSec,
+		})
+	}
+	return plan
+}
+
+// npmUpgradeTarget은 npm 전역 패키지 업그레이드 타깃을 만든다(순수 함수 — 테스트 대상).
+// npm 셀프 업데이트는 실행 중인 npm이 자기 모듈 파일을 지우다 MODULE_NOT_FOUND로 죽을 수 있어
+// npx로 최신 npm을 캐시에 받아 그걸로 설치한다(자기 파일을 안 건드림).
+func npmUpgradeTarget(name string) Target {
+	t := Target{Kind: KindNpm, Name: name, CmdTimeoutSec: upgradeTimeoutSec}
+	if name == "npm" {
+		t.Commands = []string{"npx -y npm@latest install -g npm@latest"}
+		t.Warnings = []string{"npm 자체 업데이트는 안전을 위해 npx 경유로 실행합니다(셀프 업데이트 실패 방지)."}
+	} else {
+		t.Commands = []string{"npm install -g " + name + "@latest"}
+	}
+	return t
+}
+
+// BuildCombinedUpgradePlan은 여러 대상의 업데이트 계획을 하나로 합친다(TUI 멀티선택용).
+func BuildCombinedUpgradePlan(ctx context.Context, run *iexec.Runner, names []string) *Plan {
+	combined := &Plan{Query: strings.Join(names, ", "), Verb: "업데이트", Icon: "⬆️"}
+	for _, n := range names {
+		p := BuildUpgradePlan(ctx, run, n)
+		combined.Targets = append(combined.Targets, p.Targets...)
+	}
+	return combined
+}
+
+var masListLine = regexp.MustCompile(`^(\d+)\s+(.+?)\s+\(`)
+
+// masAppID는 mas list에서 앱 이름으로 App Store ID를 찾는다.
+func masAppID(ctx context.Context, run *iexec.Runner, name string) (string, bool) {
+	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: 60}, "mas", "list")
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if m := masListLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			if strings.EqualFold(strings.TrimSpace(m[2]), name) {
+				return m[1], true
+			}
+		}
+	}
+	return "", false
+}

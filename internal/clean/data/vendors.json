@@ -1,0 +1,95 @@
+{
+  "_comment": "벤더 폴더 매핑. 앱을 지울 때 ~/Library/.../<folder> 아래 벤더 공유 폴더를 어떻게 다룰지 정의한다. 새 케이스는 여기에 추가하면 코드 수정 없이 반영된다.",
+  "vendors": [
+    {
+      "vendor": "Google",
+      "bundle_prefixes": ["com.google."],
+      "folders": ["Google"],
+      "apps": {
+        "com.google.Chrome": "Chrome",
+        "com.google.Chrome.canary": "Chrome Canary",
+        "com.google.Chrome.beta": "Chrome Beta",
+        "com.google.drivefs": "DriveFS"
+      },
+      "shared_components": [
+        {
+          "name": "Keystone / GoogleUpdater (자동 업데이트)",
+          "globs": [
+            "Library/Google/GoogleSoftwareUpdate",
+            "Library/Google/GoogleUpdater",
+            "Library/LaunchAgents/com.google.keystone.*",
+            "Library/LaunchAgents/com.google.GoogleUpdater.*"
+          ]
+        }
+      ]
+    },
+    {
+      "_comment": "Microsoft Office: Office 앱들은 Group Containers(팀 ID UBF8T346G9.*)에 라이선스/활성화 등 공유 데이터를 둔다. 다른 Office 앱이 남아있으면 이걸 지우면 활성화가 풀리므로 공유 컴포넌트로 보존한다. VS Code는 데이터 폴더가 'Code'라 apps에 별도 매핑.",
+      "vendor": "Microsoft",
+      "bundle_prefixes": ["com.microsoft."],
+      "folders": ["Microsoft"],
+      "apps": {
+        "com.microsoft.Word": "Word",
+        "com.microsoft.Excel": "Excel",
+        "com.microsoft.Powerpoint": "PowerPoint",
+        "com.microsoft.Outlook": "Outlook",
+        "com.microsoft.onenote.mac": "OneNote",
+        "com.microsoft.VSCode": "Code"
+      },
+      "shared_components": [
+        {
+          "name": "Microsoft AutoUpdate (MAU, 공유 업데이터)",
+          "globs": [
+            "Library/Application Support/Microsoft AutoUpdate",
+            "Library/Caches/com.microsoft.autoupdate.fba",
+            "Library/LaunchAgents/com.microsoft.update.*",
+            "Library/LaunchAgents/com.microsoft.autoupdate.*",
+            "Library/Preferences/com.microsoft.autoupdate2.plist"
+          ]
+        },
+        {
+          "name": "Office 공유 데이터 / 라이선스 (Group Containers)",
+          "globs": [
+            "Library/Group Containers/UBF8T346G9.*",
+            "Library/Preferences/com.microsoft.office.plist"
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "Adobe",
+      "bundle_prefixes": ["com.adobe."],
+      "folders": ["Adobe"],
+      "apps": {},
+      "shared_components": [
+        {
+          "name": "Adobe Creative Cloud / OOBE (공유)",
+          "globs": [
+            "Library/Application Support/Adobe/Adobe Desktop Common",
+            "Library/Application Support/Adobe/OOBE",
+            "Library/Application Support/Adobe/AdobeGCClient"
+          ]
+        }
+      ]
+    },
+    {
+      "vendor": "JetBrains",
+      "bundle_prefixes": ["com.jetbrains."],
+      "folders": ["JetBrains"],
+      "apps": {
+        "com.jetbrains.intellij": "IntelliJIdea",
+        "com.jetbrains.pycharm": "PyCharm",
+        "com.jetbrains.goland": "GoLand",
+        "com.jetbrains.WebStorm": "WebStorm"
+      },
+      "shared_components": [
+        {
+          "name": "JetBrains Toolbox / 공유 설정",
+          "globs": [
+            "Library/Application Support/JetBrains/Toolbox"
+          ]
+        }
+      ]
+    }
+  ]
+}

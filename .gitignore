@@ -1,0 +1,11 @@
+# 빌드 산출물
+macinv
+/dist/
+
+# 개인 스캔 결과 (호스트명·설치 목록 등 개인 정보 포함 — 절대 커밋 금지)
+mac_inventory_*.json
+inventory.json
+
+# 로컬 도구 설정
+.claude/
+.DS_Store

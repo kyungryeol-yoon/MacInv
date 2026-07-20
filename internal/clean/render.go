@@ -1,0 +1,96 @@
+package clean
+
+import (
+	"fmt"
+	"strings"
+)
+
+// PlanLine은 삭제 계획의 한 줄이다(CLI 텍스트·TUI 모달이 공유하는 구조화 표현).
+// Toggleable이 true면 그 줄은 [확신낮음] 잔여 경로로, 사용자가 켜야만 삭제 대상이 된다.
+type PlanLine struct {
+	Text       string // 렌더용 텍스트(들여쓰기 포함, 배지 제외)
+	Kind       string // "target"|"bundle"|"warning"|"command"|"path"|"excluded"|"suggestion"
+	Confidence string // Kind=="path"일 때만: high|medium|low
+	Path       string // Kind=="path"|"excluded"일 때 실제 경로
+	Toggleable bool   // 확신낮음 경로 → 체크박스 대상
+}
+
+// PlanLines는 계획을 구조화된 줄 목록으로 만든다(CLI/TUI 공용 단일 소스).
+func PlanLines(p *Plan) []PlanLine {
+	var lines []PlanLine
+	for _, t := range p.Targets {
+		lines = append(lines, PlanLine{Kind: "target", Text: fmt.Sprintf("▸ %s (%s)", t.Name, KindLabel(t.Kind))})
+		if t.BundleID != "" {
+			lines = append(lines, PlanLine{Kind: "bundle", Text: "  Bundle ID: " + t.BundleID})
+		}
+		for _, w := range t.Warnings {
+			lines = append(lines, PlanLine{Kind: "warning", Text: "  ⚠️  " + w})
+		}
+		for _, c := range t.Commands {
+			lines = append(lines, PlanLine{Kind: "command", Text: "  $ " + c})
+		}
+		for _, pm := range t.TrashPaths {
+			lines = append(lines, PlanLine{
+				Kind: "path", Text: "  " + ConfBadge(pm.Confidence) + " " + pm.Path + "  — " + pm.Reason,
+				Confidence: pm.Confidence, Path: pm.Path, Toggleable: pm.Confidence == ConfLow,
+			})
+		}
+		for _, e := range t.Excluded {
+			lines = append(lines, PlanLine{Kind: "excluded", Text: "  🔒 보존: " + e.Path + "  — " + e.Reason, Path: e.Path})
+		}
+		for _, s := range t.Suggestions {
+			lines = append(lines, PlanLine{Kind: "suggestion", Text: "  💡 " + s})
+		}
+	}
+	return lines
+}
+
+// RenderPlanText는 계획을 CLI 블록 문자열로 렌더링한다(TUI 모달과 동일 내용을 보장).
+func RenderPlanText(p *Plan) string {
+	line := strings.Repeat("─", 62)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n %s %s 계획: '%s'\n%s\n", line, p.icon(), p.verb(), p.Query, line)
+	for _, l := range PlanLines(p) {
+		if l.Kind == "target" {
+			b.WriteString("\n")
+		}
+		b.WriteString("  " + l.Text + "\n")
+	}
+	return b.String()
+}
+
+// KindLabel은 타깃 종류의 한국어 라벨이다(CLI/TUI 공용).
+func KindLabel(kind string) string {
+	switch kind {
+	case KindApp:
+		return "GUI 앱"
+	case KindBrewFormula:
+		return "brew formula"
+	case KindBrewCask:
+		return "brew cask"
+	case KindNpm:
+		return "npm 전역"
+	case KindPipx:
+		return "pipx"
+	case KindCargo:
+		return "cargo"
+	case KindGoBin:
+		return "go bin"
+	case KindMas:
+		return "App Store"
+	default:
+		return kind
+	}
+}
+
+// ConfBadge는 확신도 배지다(CLI/TUI 공용).
+func ConfBadge(conf string) string {
+	switch conf {
+	case ConfMedium:
+		return "[확신중간]"
+	case ConfLow:
+		return "[확신낮음]"
+	default:
+		return "[확실]"
+	}
+}
