@@ -24,6 +24,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newTraceCmd())
 	root.AddCommand(newRuntimesCmd())
 	root.AddCommand(newCleanCmd())
+	root.AddCommand(newOrphansCmd())
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newTuiCmd())
 	return root

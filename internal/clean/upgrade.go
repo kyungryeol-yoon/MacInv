@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
 
 // KindMas는 App Store(mas) 앱 타깃이다(업데이트 전용).
@@ -74,6 +75,39 @@ func npmUpgradeTarget(name string) Target {
 		t.Commands = []string{"npm install -g " + name + "@latest"}
 	}
 	return t
+}
+
+// UpgradePlanFromOutdated는 outdated 목록에서 곧장 일괄 업데이트 계획을 만든다(순수 함수 — 테스트 대상).
+// 각 행의 소스를 이미 알므로 설치 여부 프로브가 필요 없다(update --all 경로, 빠름).
+func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
+	plan := &Plan{Query: "전체 업데이트", Verb: "업데이트", Icon: "⬆️"}
+	for _, r := range rows {
+		switch r.Source {
+		case "brew":
+			plan.Targets = append(plan.Targets, Target{
+				Kind: KindBrewFormula, Name: r.Name,
+				Commands:      []string{"brew upgrade " + r.Name},
+				CmdTimeoutSec: upgradeTimeoutSec,
+			})
+		case "cask":
+			plan.Targets = append(plan.Targets, Target{
+				Kind: KindBrewCask, Name: r.Name,
+				Commands:      []string{"brew upgrade --cask " + r.Name},
+				CmdTimeoutSec: upgradeTimeoutSec,
+			})
+		case "npm":
+			plan.Targets = append(plan.Targets, npmUpgradeTarget(r.Name))
+		case "mas":
+			if r.ID != "" {
+				plan.Targets = append(plan.Targets, Target{
+					Kind: KindMas, Name: r.Name,
+					Commands:      []string{"mas upgrade " + r.ID},
+					CmdTimeoutSec: upgradeTimeoutSec,
+				})
+			}
+		}
+	}
+	return plan
 }
 
 // BuildCombinedUpgradePlan은 여러 대상의 업데이트 계획을 하나로 합친다(TUI 멀티선택용).

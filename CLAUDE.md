@@ -56,6 +56,10 @@ go install .              # ~/go/bin/macinv 로 설치 (macinv --version)
 
 **성능 최적화(2026-07-20)**: ① 앱 스캔의 mdls를 앱당 3회→1회(`parseMdlsKeyed` — "키 = 값" 키 기반 파싱이라 -raw의 순서 swap 버그와 무관). ② `BuildUpgradePlan`(4개 프로브)·`BuildPlan`(brew 2개)·`appendPackageTargets`(3개) 프로브를 병렬화 — TUI 모달 대기 절반 이하. ③ 벤더 판단용 `installedAppBundleIDs`는 `sync.OnceValue`로 지연(벤더 매칭 시에만) + 내부 mdls 병렬(worker 8). 측정: scan 2.7s→2.0s, update 계획 1.45s→0.65s, 출력 동일 검증.
 
+**orphans 서브시스템**(`internal/clean/orphans.go` + `internal/cmd/orphans.go`): 설치 앱 Bundle ID와 `~/Library` 항목을 대조해 **지워진 앱의 고아 데이터**를 찾는다(`macinv orphans`, dry-run 기본). 판정은 순수 함수 `classifyOrphan` — Bundle ID 형태(점 2개 이상)만 대상, `orphanProtected`(`com.apple.` **포함**·`systemgroup.`·팀ID 접두사 `^[A-Z0-9]{10}\.`·`is.workflow.`/`org.sparkle-project.`) 보존, 설치 ID 양방향 접두사 보존, 벤더 공유 보존. 이 보호 규칙들은 실기 오탐(Apple Podcasts 그룹·단축어·Sparkle)에서 나온 것이니 **완화 금지**. `/Library`는 스캔하지 않는다(타 사용자/서비스 소유 가능). 확신도는 전부 `[확신중간]`.
+
+**update --all**: `collectOutdatedRows`(cmd/outdated.go, outdated 커맨드와 공용) → `clean.UpgradePlanFromOutdated`(순수 함수 — 소스를 이미 알아 프로브 불필요, mas는 `OutdatedRow.ID` 사용, npm 셀프는 npx 규칙 자동). 확인 입력은 `all`.
+
 **exec 실행 규칙 주의**: 스캔(읽기)은 "stdout 있으면 비허용 종료코드라도 성공"(프로토타입 계승)이지만, **변경 명령(clean/update의 `Execute`·`MoveToTrash`)은 `Opt.Strict`로 엄격 판정** — 부분 실패를 성공으로 오인하지 않는다. 실패 에러 메시지에는 stderr(없으면 stdout) 상세가 포함된다.
 
 5. **clean `<name>`** ✅ (완료, 이후 강화) — 삭제 플래너. `internal/clean` 패키지. `BuildPlan`은 **읽기 전용**으로 계획만 만들고, 실제 삭제는 `Execute`(휴지통 이동)를 `--apply` + 대화형 확인(대상 이름 정확 입력) 후에만 호출.

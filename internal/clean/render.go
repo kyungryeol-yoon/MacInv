@@ -78,6 +78,8 @@ func KindLabel(kind string) string {
 		return "go bin"
 	case KindMas:
 		return "App Store"
+	case KindOrphan:
+		return "고아 잔여물"
 	default:
 		return kind
 	}

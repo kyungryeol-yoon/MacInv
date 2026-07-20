@@ -33,16 +33,8 @@ func newOutdatedCmd() *cobra.Command {
 	return cmd
 }
 
-func runOutdated(ctx context.Context, f outdatedFlags) error {
-	rec := &iexec.Recorder{}
-	run := iexec.NewRunner(rec, 120)
-
-	step := func(msg string) {
-		if !f.jsonOut {
-			fmt.Fprintf(os.Stderr, "  … %s\n", msg)
-		}
-	}
-
+// collectOutdatedRows는 brew/npm/mas만 스캔·보강해 업데이트 대기 행을 모은다(outdated/update --all 공용).
+func collectOutdatedRows(ctx context.Context, run *iexec.Runner, rec *iexec.Recorder, step func(string)) []report.OutdatedRow {
 	step("brew/npm/mas 스캔 중")
 	results := source.ScanAll(ctx, source.OutdatedSources(run), rec)
 	sections := buildSections(results)
@@ -55,15 +47,20 @@ func runOutdated(ctx context.Context, f outdatedFlags) error {
 		step("npm 최신버전 확인 중")
 		source.EnrichNpm(ctx, run, sections.Npm)
 	}
+	return report.OutdatedRows(&report.Report{Sections: sections})
+}
 
-	host, _ := os.Hostname()
-	rep := &report.Report{
-		GeneratedAt: time.Now().Format(time.RFC3339),
-		Hostname:    host,
-		Sections:    sections,
-		Errors:      rec.Messages(),
+func runOutdated(ctx context.Context, f outdatedFlags) error {
+	rec := &iexec.Recorder{}
+	run := iexec.NewRunner(rec, 120)
+
+	step := func(msg string) {
+		if !f.jsonOut {
+			fmt.Fprintf(os.Stderr, "  … %s\n", msg)
+		}
 	}
-	rows := report.OutdatedRows(rep)
+	rows := collectOutdatedRows(ctx, run, rec, step)
+	rep := &report.Report{GeneratedAt: time.Now().Format(time.RFC3339)}
 
 	if f.jsonOut {
 		payload := struct {
