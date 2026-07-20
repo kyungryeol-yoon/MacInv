@@ -44,7 +44,7 @@ func (m Model) View() string {
 func (m Model) header() string {
 	var tabsRow strings.Builder
 	for i, t := range m.tabs {
-		label := fmt.Sprintf("%s (%d)", t.title, len(t.rows))
+		label := fmt.Sprintf("%s (%d)", t.title, t.count)
 		if i == m.active {
 			tabsRow.WriteString(activeTab.Render(label))
 		} else {
@@ -203,14 +203,40 @@ func (m Model) confirmView() string {
 
 func buildTabs(rep *report.Report) []tab {
 	s := rep.Sections
+	outdated := report.OutdatedRows(rep)
 	return []tab{
-		{"앱", appRows(s.Apps)},
-		{"brew", brewRows(s.Brew)},
-		{"패키지", packageRows(s)},
-		{"런타임", runtimeRows(rep.Runtimes, rep.VersionManagers)},
-		{"업데이트", outdatedRows(rep)},
-		{"launchd", launchdRows(s.Launchd)},
+		{"앱", appRows(s.Apps), len(s.Apps)},
+		{"brew", brewRows(s.Brew), brewCount(s.Brew)},
+		{"패키지", packageRows(s), packageCount(s)},
+		{"런타임", runtimeRows(rep.Runtimes, rep.VersionManagers), installedRuntimeCount(rep.Runtimes)},
+		{"업데이트", outdatedRowsFrom(outdated), len(outdated)},
+		{"launchd", launchdRows(s.Launchd), len(s.Launchd)},
 	}
+}
+
+func brewCount(b *report.Brew) int {
+	if b == nil {
+		return 0
+	}
+	return len(b.Formulae) + len(b.Casks)
+}
+
+func packageCount(s report.Sections) int {
+	n := len(s.Pipx) + len(s.Cargo) + len(s.GoBin)
+	if s.Npm != nil {
+		n += len(s.Npm.Packages)
+	}
+	return n
+}
+
+func installedRuntimeCount(runtimes []report.Runtime) int {
+	n := 0
+	for _, rt := range runtimes {
+		if rt.Installed {
+			n++
+		}
+	}
+	return n
 }
 
 func appRows(apps []report.App) []row {
@@ -321,8 +347,7 @@ func runtimeRows(runtimes []report.Runtime, managers []report.VersionManager) []
 	return rows
 }
 
-func outdatedRows(rep *report.Report) []row {
-	rr := report.OutdatedRows(rep)
+func outdatedRowsFrom(rr []report.OutdatedRow) []row {
 	if len(rr) == 0 {
 		return []row{{text: okStyle.Render("✅ 모든 패키지가 최신 상태입니다.")}}
 	}

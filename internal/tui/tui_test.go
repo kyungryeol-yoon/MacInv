@@ -70,6 +70,41 @@ func TestBuildTabsRows(t *testing.T) {
 	if !sawGemini {
 		t.Errorf("패키지 탭에 @google/gemini-cli 없음")
 	}
+
+	// 탭 라벨 카운트는 실제 항목 수여야 한다(플레이스홀더 행 제외). sampleReport는
+	// 앱 2개, brew formula 1 + cask 1, npm 1, 런타임 설치 1(go)이므로 그대로 대응.
+	wantCounts := map[string]int{"앱": 2, "brew": 2, "패키지": 1, "런타임": 1}
+	for _, tb := range tabs {
+		if want, ok := wantCounts[tb.title]; ok && tb.count != want {
+			t.Errorf("tabs[%s].count = %d, want %d", tb.title, tb.count, want)
+		}
+	}
+}
+
+// 회귀: 업데이트할 게 없으면 "✅ 모든 패키지가 최신 상태입니다" 안내 행이 rows에는 있어도
+// 탭 라벨 카운트는 0이어야 한다(전에는 안내 행까지 세어 "업데이트 (1)"로 잘못 표시됐다).
+func TestOutdatedTabCountExcludesPlaceholder(t *testing.T) {
+	rep := sampleReport()
+	// 모든 outdated 플래그를 끈다.
+	rep.Sections.Brew.Formulae[0].Outdated = false
+	rep.Sections.Npm.Packages[0].Outdated = false
+
+	tabs := buildTabs(rep)
+	var updateTab *tab
+	for i := range tabs {
+		if tabs[i].title == "업데이트" {
+			updateTab = &tabs[i]
+		}
+	}
+	if updateTab == nil {
+		t.Fatal("업데이트 탭을 못 찾음")
+	}
+	if updateTab.count != 0 {
+		t.Errorf("업데이트할 게 없는데 count = %d, want 0", updateTab.count)
+	}
+	if len(updateTab.rows) != 1 {
+		t.Errorf("안내 행이 없어짐: rows = %v", updateTab.rows)
+	}
 }
 
 func TestMultiSelectToggle(t *testing.T) {

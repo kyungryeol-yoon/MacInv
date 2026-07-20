@@ -60,6 +60,7 @@ type row struct {
 type tab struct {
 	title string
 	rows  []row
+	count int // 실제 항목 수(탭 라벨 표시용). "(없음)"/"최신 상태" 같은 안내 행은 세지 않는다.
 }
 
 type job struct {
