@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 )
@@ -17,30 +18,44 @@ const upgradeTimeoutSec = 1800
 
 // BuildUpgradePlan은 name을 최신 버전으로 올리는 계획을 만든다(읽기 전용).
 // 소스별 네이티브 업그레이드 명령만 담고 삭제/휴지통은 없다. Execute·RenderPlanText를 삭제와 공유한다.
+// 4개 소스 프로브(각각 외부 명령 1회)는 서로 독립이라 병렬로 조회한다 — TUI 모달 대기시간 단축.
 func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan {
 	plan := &Plan{Query: name, Verb: "업데이트", Icon: "⬆️"}
 
-	if brewInstalled(ctx, run, name, false) {
+	var (
+		wg                       sync.WaitGroup
+		formulaOK, caskOK, npmOK bool
+		masID                    string
+		masOK                    bool
+	)
+	wg.Add(4)
+	go func() { defer wg.Done(); formulaOK = brewInstalled(ctx, run, name, false) }()
+	go func() { defer wg.Done(); caskOK = brewInstalled(ctx, run, name, true) }()
+	go func() { defer wg.Done(); npmOK = npmGlobalInstalled(ctx, run, name) }()
+	go func() { defer wg.Done(); masID, masOK = masAppID(ctx, run, name) }()
+	wg.Wait()
+
+	if formulaOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindBrewFormula, Name: name,
 			Commands:      []string{"brew upgrade " + name},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}
-	if brewInstalled(ctx, run, name, true) {
+	if caskOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindBrewCask, Name: name,
 			Commands:      []string{"brew upgrade --cask " + name},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}
-	if npmGlobalInstalled(ctx, run, name) {
+	if npmOK {
 		plan.Targets = append(plan.Targets, npmUpgradeTarget(name))
 	}
-	if id, ok := masAppID(ctx, run, name); ok {
+	if masOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindMas, Name: name,
-			Commands:      []string{"mas upgrade " + id},
+			Commands:      []string{"mas upgrade " + masID},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}

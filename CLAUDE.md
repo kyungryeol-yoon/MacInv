@@ -54,6 +54,8 @@ go install .              # ~/go/bin/macinv 로 설치 (macinv --version)
 
 **점검 후속 개선(2026-07-20)**: ① `clean` 앱 이름 매칭은 **정확 일치 우선**(`matchApps` 순수 함수) — 정확 일치가 없을 때만 부분일치를 쓰고 타깃에 "이름 부분일치" 경고를 붙인다. ② TUI는 시작 스캔과 재스캔 병합 직후 `PersistFunc`(cmd의 `PersistReport`)로 `~/.macinv/inventory.json` 캐시를 동기화한다(persist는 Update 루프에서 동기 호출 — m.rep 경합 방지). ③ 잡 완료 시 실패 건수 요약(`jobDoneMsg.failed`)을 로그에 남긴다. ④ 업그레이드/설치 명령만 `Target.CmdTimeoutSec=1800`(30분), 삭제·휴지통은 기본 300초.
 
+**성능 최적화(2026-07-20)**: ① 앱 스캔의 mdls를 앱당 3회→1회(`parseMdlsKeyed` — "키 = 값" 키 기반 파싱이라 -raw의 순서 swap 버그와 무관). ② `BuildUpgradePlan`(4개 프로브)·`BuildPlan`(brew 2개)·`appendPackageTargets`(3개) 프로브를 병렬화 — TUI 모달 대기 절반 이하. ③ 벤더 판단용 `installedAppBundleIDs`는 `sync.OnceValue`로 지연(벤더 매칭 시에만) + 내부 mdls 병렬(worker 8). 측정: scan 2.7s→2.0s, update 계획 1.45s→0.65s, 출력 동일 검증.
+
 **exec 실행 규칙 주의**: 스캔(읽기)은 "stdout 있으면 비허용 종료코드라도 성공"(프로토타입 계승)이지만, **변경 명령(clean/update의 `Execute`·`MoveToTrash`)은 `Opt.Strict`로 엄격 판정** — 부분 실패를 성공으로 오인하지 않는다. 실패 에러 메시지에는 stderr(없으면 stdout) 상세가 포함된다.
 
 5. **clean `<name>`** ✅ (완료, 이후 강화) — 삭제 플래너. `internal/clean` 패키지. `BuildPlan`은 **읽기 전용**으로 계획만 만들고, 실제 삭제는 `Execute`(휴지통 이동)를 `--apply` + 대화형 확인(대상 이름 정확 입력) 후에만 호출.

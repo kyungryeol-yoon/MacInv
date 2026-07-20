@@ -68,8 +68,7 @@ func (s *appsSource) Scan(ctx context.Context) (any, error) {
 	return results, nil
 }
 
-// mdls 속성명. 순서에 의존하지 않도록 -name 하나씩 개별 조회한다
-// (프로토타입은 여러 -name을 한 번에 넘겨 반환 순서가 뒤바뀌는 버그가 있었다).
+// mdls 속성명.
 const (
 	attrBundleID  = "kMDItemCFBundleIdentifier"
 	attrVersion   = "kMDItemVersion"
@@ -81,9 +80,17 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 		Name: strings.TrimSuffix(filepath.Base(path), ".app"),
 		Path: path,
 	}
-	app.BundleID = s.mdlsOne(ctx, path, attrBundleID)
-	app.Version = s.mdlsOne(ctx, path, attrVersion)
-	app.DateAdded = s.mdlsOne(ctx, path, attrDateAdded)
+	// mdls를 앱당 한 번만 호출한다(3회 → 1회, 프로세스 스폰 비용 절감).
+	// -raw의 위치 기반 출력은 순서가 뒤바뀌는 버그(프로토타입)가 있어,
+	// "키 = 값" 형식을 키 기반으로 파싱해 순서 문제 자체를 없앤다.
+	out, err := s.run.Run(ctx, iexec.Opt{TimeoutSec: 20}, "mdls",
+		"-name", attrBundleID, "-name", attrVersion, "-name", attrDateAdded, path)
+	if err == nil {
+		attrs := parseMdlsKeyed(out)
+		app.BundleID = report.PtrOrNil(attrs[attrBundleID])
+		app.Version = report.PtrOrNil(attrs[attrVersion])
+		app.DateAdded = report.PtrOrNil(attrs[attrDateAdded])
+	}
 	if app.DateAdded == nil {
 		app.DateAdded = birthtime(path)
 	}
@@ -93,17 +100,23 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 	return app
 }
 
-// mdlsOne은 속성 하나를 -raw로 조회한다. (null)/빈 값이면 nil.
-func (s *appsSource) mdlsOne(ctx context.Context, path, attr string) *string {
-	out, err := s.run.Run(ctx, iexec.Opt{TimeoutSec: 20}, "mdls", "-raw", "-name", attr, path)
-	if err != nil {
-		return nil
+// parseMdlsKeyed는 mdls의 "속성 = 값" 줄들을 파싱한다(순수 함수 — 테스트 대상).
+// (null)/빈 값은 제외하고, 문자열 값의 둘러싼 따옴표는 벗긴다.
+func parseMdlsKeyed(out string) map[string]string {
+	m := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		val := strings.TrimSpace(v)
+		if key == "" || val == "" || val == "(null)" {
+			continue
+		}
+		m[key] = strings.Trim(val, `"`)
 	}
-	v := strings.TrimSpace(out)
-	if v == "" || v == "(null)" {
-		return nil
-	}
-	return &v
+	return m
 }
 
 // duKB는 du -sk로 KB 용량을 구한다.

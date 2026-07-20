@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 )
@@ -61,7 +62,7 @@ func Execute(ctx context.Context, run *iexec.Runner, plan *Plan,
 // 계획 명령은 코드가 생성한 고정 형식(brew ...)이라 공백 분리로 충분하다.
 // timeoutSec가 0이면 기본 300초.
 func runShellWords(ctx context.Context, run *iexec.Runner, cmdline string, timeoutSec int) error {
-	fields := splitFields(cmdline)
+	fields := strings.Fields(cmdline)
 	if len(fields) == 0 {
 		return nil
 	}
@@ -71,23 +72,4 @@ func runShellWords(ctx context.Context, run *iexec.Runner, cmdline string, timeo
 	// 변경 명령은 Strict: 비허용 종료코드는 stdout이 있어도 실패로 본다(부분 실패를 성공으로 오인 방지).
 	_, err := run.Run(ctx, iexec.Opt{TimeoutSec: timeoutSec, Strict: true}, fields[0], fields[1:]...)
 	return err
-}
-
-func splitFields(s string) []string {
-	var out []string
-	cur := ""
-	for _, r := range s {
-		if r == ' ' {
-			if cur != "" {
-				out = append(out, cur)
-				cur = ""
-			}
-			continue
-		}
-		cur += string(r)
-	}
-	if cur != "" {
-		out = append(out, cur)
-	}
-	return out
 }

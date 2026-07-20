@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 )
@@ -233,10 +234,20 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	home, _ := os.UserHomeDir()
 	plan := &Plan{Query: query}
 
+	// 독립적인 소스 프로브(brew cask/formula)는 병렬로 미리 조회한다 — 계획 대기시간 단축.
+	var (
+		probeWg          sync.WaitGroup
+		caskOK, formulaOK bool
+	)
+	probeWg.Add(2)
+	go func() { defer probeWg.Done(); caskOK = brewInstalled(ctx, run, query, true) }()
+	go func() { defer probeWg.Done(); formulaOK = brewInstalled(ctx, run, query, false) }()
+	probeWg.Wait()
+
 	caskMatched := false
 
 	// 1) brew cask
-	if brewInstalled(ctx, run, query, true) {
+	if caskOK {
 		caskMatched = true
 		t := Target{Kind: KindBrewCask, Name: query}
 		t.Commands = append(t.Commands, "brew uninstall --cask "+query)
@@ -250,7 +261,7 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	}
 
 	// 2) brew formula
-	if brewInstalled(ctx, run, query, false) {
+	if formulaOK {
 		t := Target{Kind: KindBrewFormula, Name: query}
 		t.Commands = append(t.Commands, "brew uninstall "+query)
 		if deps := reverseDeps(ctx, run, query); len(deps) > 0 {
@@ -267,10 +278,8 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	// 3) 독립 GUI 앱 (brew cask로 이미 처리된 경우는 제외)
 	if !caskMatched {
 		apps, exact := findAppsByName(query)
-		var installedIDs []string
-		if len(apps) > 0 {
-			installedIDs = installedAppBundleIDs(ctx, run) // 벤더 판단용(다른 벤더 앱 설치 여부)
-		}
+		// 벤더 판단용 Bundle ID 수집은 비싸므로(앱마다 mdls) 벤더 매칭이 실제로 필요할 때만 1회 수행.
+		installedIDs := sync.OnceValue(func() []string { return installedAppBundleIDs(ctx, run) })
 		for _, app := range apps {
 			if IsProtected(app) {
 				continue // 시스템 경로의 앱은 건드리지 않음
@@ -307,7 +316,9 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 //   - 같은 벤더의 다른 앱이 설치돼 있으면: <Vendor>/<App> 하위만 [확신낮음]으로 추가하고,
 //     공유 컴포넌트(Keystone 등)는 "타 앱 사용 중" 사유로 제외 목록에 표시.
 //   - 이 벤더 앱이 이것뿐이면: 벤더 폴더 전체를 [확신중간]으로 추가(공유 컴포넌트 포함).
-func augmentVendor(t *Target, home, bundleID, appName string, installedIDs []string) {
+//
+// installedIDs는 지연 공급자다 — 벤더 매칭이 없으면 비싼 Bundle ID 수집을 아예 안 한다.
+func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func() []string) {
 	v, appSubdir, ok := lookupVendor(vendors(), bundleID, appName)
 	if !ok {
 		return
@@ -317,7 +328,7 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs []str
 		seen[p.Path] = true
 	}
 
-	others := countVendorApps(v, installedIDs, bundleID)
+	others := countVendorApps(v, installedIDs(), bundleID)
 	roots := libraryRoots(home)
 
 	if others > 0 {
@@ -406,23 +417,42 @@ func globHome(home, rel string) []string {
 }
 
 // installedAppBundleIDs는 앱 디렉토리의 *.app들의 Bundle ID를 모은다(벤더 판단용).
+// 앱마다 mdls 1회라 병렬(worker 8)로 조회한다.
 func installedAppBundleIDs(ctx context.Context, run *iexec.Runner) []string {
-	var ids []string
+	var paths []string
 	for _, root := range appRoots() {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".app") {
-				continue
-			}
-			if id := bundleIDOf(ctx, run, filepath.Join(root, e.Name())); id != "" {
-				ids = append(ids, id)
+			if strings.HasSuffix(e.Name(), ".app") {
+				paths = append(paths, filepath.Join(root, e.Name()))
 			}
 		}
 	}
-	return ids
+
+	ids := make([]string, len(paths))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, p := range paths {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, p string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			ids[i] = bundleIDOf(ctx, run, p)
+		}(i, p)
+	}
+	wg.Wait()
+
+	out := ids[:0]
+	for _, id := range ids {
+		if id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // addLeftovers는 존재하고 블랙리스트가 아닌 잔여물만 타깃에 더한다(이미 담긴 경로는 건너뜀).

@@ -62,7 +62,7 @@ func TestAugmentVendorChromeSharedFolder(t *testing.T) {
 	tgt := &Target{Kind: KindApp, Name: "Google Chrome.app", BundleID: "com.google.Chrome"}
 	// 다른 구글 앱(DriveFS)이 설치돼 있는 상황.
 	augmentVendor(tgt, home, "com.google.Chrome", "Google Chrome",
-		[]string{"com.google.Chrome", "com.google.drivefs"})
+		func() []string { return []string{"com.google.Chrome", "com.google.drivefs"} })
 
 	var gotChrome bool
 	for _, p := range tgt.TrashPaths {
@@ -108,7 +108,7 @@ func TestAugmentVendorOfficeSharedLicense(t *testing.T) {
 	tgt := &Target{Kind: KindApp, BundleID: "com.microsoft.Word"}
 	// Excel(다른 Office 앱)이 설치돼 있는 상황.
 	augmentVendor(tgt, home, "com.microsoft.Word", "Microsoft Word",
-		[]string{"com.microsoft.Word", "com.microsoft.Excel"})
+		func() []string { return []string{"com.microsoft.Word", "com.microsoft.Excel"} })
 
 	trashed := map[string]string{}
 	for _, p := range tgt.TrashPaths {
@@ -151,7 +151,7 @@ func TestAugmentVendorChromeSoleApp(t *testing.T) {
 
 	tgt := &Target{Kind: KindApp, BundleID: "com.google.Chrome"}
 	augmentVendor(tgt, home, "com.google.Chrome", "Google Chrome",
-		[]string{"com.google.Chrome"}) // 구글 앱은 이것뿐
+		func() []string { return []string{"com.google.Chrome"} }) // 구글 앱은 이것뿐
 
 	var gotWhole, gotKeystone bool
 	for _, p := range tgt.TrashPaths {

@@ -24,6 +24,32 @@ func strv(p *string) string {
 	return *p
 }
 
+// mdls 1회 호출("키 = 값" 출력) 파싱 — 키 기반이라 속성 순서와 무관해야 한다(프로토타입 swap 버그 방지).
+func TestParseMdlsKeyed(t *testing.T) {
+	out := `kMDItemVersion             = "148.0.7778.179"
+kMDItemDateAdded           = 2026-04-19 11:59:33 +0000
+kMDItemCFBundleIdentifier  = "com.google.Chrome"
+`
+	m := parseMdlsKeyed(out)
+	if m[attrBundleID] != "com.google.Chrome" {
+		t.Errorf("bundle id = %q", m[attrBundleID])
+	}
+	if m[attrVersion] != "148.0.7778.179" {
+		t.Errorf("version = %q (따옴표 제거돼야)", m[attrVersion])
+	}
+	if m[attrDateAdded] != "2026-04-19 11:59:33 +0000" {
+		t.Errorf("date = %q", m[attrDateAdded])
+	}
+	// (null)/빈 값은 맵에서 제외.
+	m2 := parseMdlsKeyed("kMDItemVersion = (null)\nkMDItemCFBundleIdentifier = \"x\"\n잘못된줄\n")
+	if _, ok := m2[attrVersion]; ok {
+		t.Errorf("(null)이 맵에 들어감")
+	}
+	if m2[attrBundleID] != "x" {
+		t.Errorf("정상 값 유실: %v", m2)
+	}
+}
+
 func TestParseBrewInfo(t *testing.T) {
 	formulae, casks, err := parseBrewInfo(readFixture(t, "brew_info_v2.json"))
 	if err != nil {
