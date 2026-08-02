@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
+	"github.com/kyungryeol-yoon/macinv/internal/disk"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
 
@@ -215,7 +216,7 @@ func (m Model) confirmView() string {
 
 // --- 탭 구성 (report → rows) ---
 
-func buildTabs(rep *report.Report, sortBySize bool) []tab {
+func buildTabs(rep *report.Report, dres *disk.Result, sortBySize bool) []tab {
 	s := rep.Sections
 	outdated := report.OutdatedRows(rep)
 	return []tab{
@@ -224,8 +225,64 @@ func buildTabs(rep *report.Report, sortBySize bool) []tab {
 		{"패키지", packageRows(s), packageCount(s)},
 		{"런타임", runtimeRows(rep.Runtimes, rep.VersionManagers), installedRuntimeCount(rep.Runtimes)},
 		{"업데이트", outdatedRowsFrom(outdated), len(outdated)},
+		{tabDisk, diskRows(dres), diskCount(dres)},
 		{"launchd", launchdRows(s.Launchd), len(s.Launchd)},
 	}
+}
+
+// tabDisk는 디스크 탭 제목이다. 키 처리에서 이 탭만 다른 플래너를 쓰므로 상수로 둔다.
+const tabDisk = "디스크"
+
+// diskTargetPrefix는 디스크 행의 target 접두사다.
+// 다른 탭의 target(앱/패키지 이름)과 이름이 겹쳐도 섞이지 않게 네임스페이스를 붙인다.
+const diskTargetPrefix = "disk:"
+
+func diskCount(dres *disk.Result) int {
+	if dres == nil {
+		return 0
+	}
+	return len(dres.Entries)
+}
+
+func diskRows(dres *disk.Result) []row {
+	if dres == nil || len(dres.Entries) == 0 {
+		return []row{{text: "(측정된 디스크 사용처 없음 — r로 재스캔)"}}
+	}
+	rows := make([]row, 0, len(dres.Entries)+3)
+	for _, e := range dres.Entries {
+		kb := e.SizeKB
+		tag := ""
+		if e.Orphan {
+			tag = warnStyle.Render("  ⚠️ 고아 캐시")
+		}
+		rows = append(rows, row{
+			text: fmt.Sprintf("%10s  %-14s %-32s %s%s",
+				report.HumanSize(&kb), disk.TierLabel(e.Tier), trunc(e.Name, 32),
+				dimStyle.Render(trunc(e.Tool, 12)), tag),
+			target: diskTargetPrefix + e.ID,
+		})
+	}
+	total, reclaim := dres.TotalKB, dres.ReclaimableKB
+	rows = append(rows,
+		row{text: dimStyle.Render(strings.Repeat("─", 40))},
+		row{text: fmt.Sprintf("%10s  합계", report.HumanSize(&total))},
+		row{text: fmt.Sprintf("%10s  %s", report.HumanSize(&reclaim),
+			okStyle.Render("정리 시 회수 가능 (안전+빌드산출물)"))},
+	)
+	if len(dres.Deep) > 0 {
+		deepKB := 0
+		for _, d := range dres.Deep {
+			deepKB += d.SizeKB
+		}
+		rows = append(rows, row{text: fmt.Sprintf("%10s  오래된 node_modules %d개 (macinv disk --deep)",
+			report.HumanSize(&deepKB), len(dres.Deep))})
+	}
+	if dres.Snapshots != nil && len(dres.Snapshots.Names) > 0 {
+		rows = append(rows, row{text: warnStyle.Render(fmt.Sprintf(
+			"            APFS 로컬 스냅샷 %d개 — 지워도 여유 공간이 바로 안 늘 수 있습니다",
+			len(dres.Snapshots.Names)))})
+	}
+	return rows
 }
 
 func brewCount(b *report.Brew) int {

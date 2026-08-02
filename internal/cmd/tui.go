@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kyungryeol-yoon/macinv/internal/disk"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 	"github.com/kyungryeol-yoon/macinv/internal/tui"
@@ -44,9 +45,18 @@ func runTui(ctx context.Context, noOutdated bool) error {
 		fmt.Fprintf(os.Stderr, "  ⚠️  캐시 저장 실패: %v\n", err)
 	}
 
+	// Disk 탭 데이터. 시작 스캔에 얹는다(1초 남짓) — 탭을 열었을 때 비어 있으면 의미가 없다.
+	fmt.Fprintln(os.Stderr, "  … 디스크 사용처 측정 중")
+	diskScan := func(dctx context.Context) *disk.Result {
+		tools := disk.DetectTools(loadOrScanInventory(dctx, run, rec))
+		res := disk.Scan(dctx, run, disk.UserHome(), tools)
+		res.Snapshots = disk.ScanSnapshots(dctx, run)
+		return res
+	}
+
 	// 부분 재스캔/캐시 기록 주입: 스캔 조립·파일 경로는 cmd, 화면은 tui (레이어 분리).
 	rescan := func(rctx context.Context, sources []string) *report.Report {
 		return RescanSources(rctx, run, rec, sources)
 	}
-	return tui.Run(ctx, run, rep, rescan, PersistReport)
+	return tui.Run(ctx, run, rep, rescan, PersistReport, diskScan(ctx), diskScan)
 }

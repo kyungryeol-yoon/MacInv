@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
+	"github.com/kyungryeol-yoon/macinv/internal/disk"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 	"github.com/kyungryeol-yoon/macinv/internal/source"
@@ -47,6 +48,9 @@ var (
 // RescanFunc는 지정한 소스만 다시 스캔해 report를 돌려준다(cmd가 주입).
 type RescanFunc func(ctx context.Context, sources []string) *report.Report
 
+// DiskScanFunc는 디스크 사용처를 다시 측정한다(cmd가 주입). nil이면 Disk 탭은 비어 있다.
+type DiskScanFunc func(ctx context.Context) *disk.Result
+
 // PersistFunc는 병합된 리포트를 캐시(~/.macinv/inventory.json)에 기록한다(cmd가 주입).
 // TUI 화면과 디스크 캐시가 어긋나지 않게 재스캔 병합 직후 호출된다.
 type PersistFunc func(rep *report.Report) error
@@ -70,12 +74,14 @@ type job struct {
 
 // Model은 TUI 상태다.
 type Model struct {
-	ctx     context.Context
-	run     *iexec.Runner
-	rescan  RescanFunc
-	persist PersistFunc
-	rep     *report.Report
-	events  chan tea.Msg
+	ctx      context.Context
+	run      *iexec.Runner
+	rescan   RescanFunc
+	persist  PersistFunc
+	diskScan DiskScanFunc
+	diskRes  *disk.Result
+	rep      *report.Report
+	events   chan tea.Msg
 
 	tabs   []tab
 	active int
@@ -109,14 +115,25 @@ func New(ctx context.Context, run *iexec.Runner, rep *report.Report, rescan Resc
 	return Model{
 		ctx: ctx, run: run, rescan: rescan, persist: persist, rep: rep,
 		events: make(chan tea.Msg, 128),
-		tabs:   buildTabs(rep, false),
+		tabs:   buildTabs(rep, nil, false),
 		marked: map[string]bool{},
 	}
 }
 
+// WithDisk는 Disk 탭 데이터와 재측정 함수를 붙인다(cmd가 시작 스캔 결과를 넘긴다).
+func (m Model) WithDisk(res *disk.Result, scan DiskScanFunc) Model {
+	m.diskRes = res
+	m.diskScan = scan
+	m.tabs = buildTabs(m.rep, res, m.sortBySize)
+	return m
+}
+
 // Run은 TUI 프로그램을 실행한다(대체 화면 사용).
-func Run(ctx context.Context, run *iexec.Runner, rep *report.Report, rescan RescanFunc, persist PersistFunc) error {
-	_, err := tea.NewProgram(New(ctx, run, rep, rescan, persist), tea.WithAltScreen()).Run()
+func Run(ctx context.Context, run *iexec.Runner, rep *report.Report,
+	rescan RescanFunc, persist PersistFunc, diskRes *disk.Result, diskScan DiskScanFunc,
+) error {
+	m := New(ctx, run, rep, rescan, persist).WithDisk(diskRes, diskScan)
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -135,6 +152,7 @@ type rescannedMsg struct {
 	rep     *report.Report
 	sources []string
 }
+type diskScannedMsg struct{ res *disk.Result }
 
 // waitEvent는 이벤트 채널에서 한 건을 받아 메시지로 돌려준다(스트리밍 루프).
 func waitEvent(ch chan tea.Msg) tea.Cmd {
@@ -183,6 +201,25 @@ func (m Model) runJobCmd(j job) tea.Cmd {
 	}
 }
 
+// buildDiskPlanCmd는 고른 디스크 위치의 정리 계획을 만든다(clean.Plan을 그대로 쓴다).
+// includeExpensive를 true로 주는 이유: TUI에서는 사용자가 그 행을 **직접 골라** d를 눌렀다는
+// 사실 자체가 옵트인이다. 대신 계획에 expensive가 있으면 RequireConfirm으로 y/N을 한 번 더 받는다.
+func (m Model) buildDiskPlanCmd(ids map[string]bool) tea.Cmd {
+	res := m.diskRes
+	return func() tea.Msg {
+		return planMsg{plan: disk.BuildCleanupPlan(res, ids, true)}
+	}
+}
+
+func (m Model) diskScanCmd() tea.Cmd {
+	scan := m.diskScan
+	ctx := m.ctx
+	if scan == nil {
+		return nil
+	}
+	return func() tea.Msg { return diskScannedMsg{res: scan(ctx)} }
+}
+
 func (m Model) rescanCmd(sources []string) tea.Cmd {
 	return func() tea.Msg {
 		return rescannedMsg{rep: m.rescan(m.ctx, sources), sources: sources}
@@ -217,7 +254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.toggleSel = 0
-		m.needConfirm = planHasApp(msg.plan)
+		m.needConfirm = planHasApp(msg.plan) || msg.plan.RequireConfirm
 		m.mode = modePlan
 		return m, nil
 
@@ -233,13 +270,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appendLog("── 작업 완료 (모두 성공) ──")
 		}
 		cmds := []tea.Cmd{waitEvent(m.events)}
-		if len(msg.sources) > 0 {
-			cmds = append(cmds, m.rescanCmd(msg.sources))
+		inv, wantDisk := splitDiskSentinel(msg.sources)
+		if len(inv) > 0 {
+			cmds = append(cmds, m.rescanCmd(inv))
+		}
+		if wantDisk {
+			if c := m.diskScanCmd(); c != nil {
+				cmds = append(cmds, c)
+			}
 		}
 		if next, ok := m.startNext(); ok {
 			cmds = append(cmds, next)
 		}
 		return m, tea.Batch(cmds...)
+
+	case diskScannedMsg:
+		if msg.res != nil {
+			m.diskRes = msg.res
+			m.tabs = buildTabs(m.rep, m.diskRes, m.sortBySize)
+			m.clampScroll()
+			m.appendLog("디스크 사용처 갱신됨")
+		}
+		return m, nil
 
 	case rescannedMsg:
 		m.mergeRescan(msg.rep, msg.sources)
@@ -313,12 +365,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// enter는 목록에서 의도 없이 눌리기 쉬운데 계획 모달의 승인도 enter다.
 	// 둘 다 enter면 brew/npm 항목은 enter 두 번(y/N 확인 없음)으로 실제 삭제된다 — 그래서 d만 받는다.
 	case "d":
+		// 디스크 탭은 앱/패키지가 아니라 캐시 위치라 플래너가 다르다(clean.Plan은 공유).
+		if ids := m.selectedDiskIDs(); len(ids) > 0 {
+			m.mode = modeBuilding
+			m.buildingVerb = "정리"
+			return m, m.buildDiskPlanCmd(ids)
+		}
 		if names := m.selectedTargets(); len(names) > 0 {
 			m.mode = modeBuilding
 			m.buildingVerb = "삭제"
 			return m, m.buildPlanCmd(names)
 		}
 	case "u": // 업데이트(brew/npm/mas 최신 버전으로)
+		if m.tabs[m.active].title == tabDisk {
+			return m, nil // 캐시 위치는 업데이트 대상이 아니다
+		}
 		if names := m.selectedTargets(); len(names) > 0 {
 			m.mode = modeBuilding
 			m.buildingVerb = "업데이트"
@@ -326,12 +387,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "s": // 앱 탭 정렬 토글(이름순 ↔ 용량순)
 		m.sortBySize = !m.sortBySize
-		m.tabs = buildTabs(m.rep, m.sortBySize)
+		m.tabs = buildTabs(m.rep, m.diskRes, m.sortBySize)
 		// 행 순서가 통째로 바뀌므로 커서를 맨 위로 되돌린다(marked는 target 기준이라 유지된다).
 		m.sel, m.top = 0, 0
 	case "r":
 		m.appendLog("전체 재스캔 중…")
-		return m, m.rescanCmd(nil)
+		return m, tea.Batch(m.rescanCmd(nil), m.diskScanCmd())
 	}
 	return m, nil
 }
@@ -430,25 +491,46 @@ func (m Model) currentRow() row {
 }
 
 // selectedTargets는 마크된 target들(없으면 현재 행)을 돌려준다.
+// 디스크 항목은 이름이 아니라 위치 ID라 여기서 제외한다(selectedDiskIDs가 담당).
 func (m Model) selectedTargets() []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, t := range m.tabs {
 		for _, r := range t.rows {
-			if r.target != "" && m.marked[r.target] && !seen[r.target] {
+			if r.target != "" && !isDiskTarget(r.target) && m.marked[r.target] && !seen[r.target] {
 				seen[r.target] = true
 				out = append(out, r.target)
 			}
 		}
 	}
 	if len(out) == 0 {
-		if r := m.currentRow(); r.target != "" {
+		if r := m.currentRow(); r.target != "" && !isDiskTarget(r.target) {
 			out = append(out, r.target)
 		}
 	}
 	sort.Strings(out)
 	return out
 }
+
+// selectedDiskIDs는 마크된 디스크 위치 ID들(없으면 현재 행)을 돌려준다.
+func (m Model) selectedDiskIDs() map[string]bool {
+	out := map[string]bool{}
+	for _, t := range m.tabs {
+		for _, r := range t.rows {
+			if isDiskTarget(r.target) && m.marked[r.target] {
+				out[strings.TrimPrefix(r.target, diskTargetPrefix)] = true
+			}
+		}
+	}
+	if len(out) == 0 {
+		if r := m.currentRow(); isDiskTarget(r.target) {
+			out[strings.TrimPrefix(r.target, diskTargetPrefix)] = true
+		}
+	}
+	return out
+}
+
+func isDiskTarget(target string) bool { return strings.HasPrefix(target, diskTargetPrefix) }
 
 func (m *Model) appendLog(s string) {
 	m.log = append(m.log, s)
@@ -485,7 +567,7 @@ func (m *Model) mergeRescan(fresh *report.Report, sources []string) {
 			m.rep.Sections.Mas = fresh.Sections.Mas
 		}
 	}
-	m.tabs = buildTabs(m.rep, m.sortBySize)
+	m.tabs = buildTabs(m.rep, m.diskRes, m.sortBySize)
 	if m.sel >= len(m.tabs[m.active].rows) {
 		m.sel = len(m.tabs[m.active].rows) - 1
 	}
@@ -493,6 +575,18 @@ func (m *Model) mergeRescan(fresh *report.Report, sources []string) {
 		m.sel = 0
 	}
 	m.appendLog("목록 갱신됨: " + strings.Join(names, ", "))
+}
+
+// splitDiskSentinel은 소스 목록에서 디스크 센티널을 떼어낸다(인벤토리 재스캔과 경로가 다르다).
+func splitDiskSentinel(sources []string) (inventory []string, disk bool) {
+	for _, s := range sources {
+		if s == sourceDisk {
+			disk = true
+			continue
+		}
+		inventory = append(inventory, s)
+	}
+	return inventory, disk
 }
 
 // planHasApp은 계획에 GUI 앱 타깃이 있는지 본다(추가 확인 필요 판단).
@@ -504,6 +598,9 @@ func planHasApp(p *clean.Plan) bool {
 	}
 	return false
 }
+
+// sourceDisk는 "디스크 사용처를 다시 재라"는 신호다(인벤토리 소스가 아니라 센티널).
+const sourceDisk = "__disk__"
 
 // planSources는 계획이 영향을 주는 소스 이름 목록이다(부분 재스캔용).
 func planSources(p *clean.Plan) []string {
@@ -524,6 +621,8 @@ func planSources(p *clean.Plan) []string {
 			set[source.NameGoBin] = true
 		case clean.KindMas:
 			set[source.NameMas] = true
+		case disk.KindDisk:
+			set[sourceDisk] = true
 		}
 	}
 	var out []string

@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
+	"github.com/kyungryeol-yoon/macinv/internal/disk"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
@@ -35,19 +36,40 @@ func sampleReport() *report.Report {
 	}
 }
 
+// sampleDiskResult는 Disk 탭 테스트용 측정 결과다(safe 하나, expensive 하나, 고아 하나).
+func sampleDiskResult() *disk.Result {
+	return &disk.Result{
+		Entries: []disk.Entry{
+			{ID: "orbstack-data", Name: "OrbStack 데이터", Tool: "orbstack", Tier: disk.TierExpensive,
+				SizeKB: 26 * 1024 * 1024, Paths: []string{"/h/gc/orbstack"},
+				Cleanup: [][]string{{"docker", "system", "prune", "-f"}}},
+			{ID: "npm-cache", Name: "npm 캐시", Tool: "npm", Tier: disk.TierSafe,
+				SizeKB: 2 * 1024 * 1024, Paths: []string{"/h/.npm/_cacache"},
+				Cleanup: [][]string{{"npm", "cache", "clean", "--force"}}},
+			{ID: "gradle-cache", Name: "Gradle 캐시", Tool: "gradle", Tier: disk.TierSafe, Orphan: true,
+				SizeKB: 3 * 1024 * 1024, Paths: []string{"/h/.gradle"},
+				Cleanup: [][]string{{"true"}}},
+		},
+		TotalKB: 31 * 1024 * 1024, ReclaimableKB: 5 * 1024 * 1024, ExpensiveKB: 26 * 1024 * 1024,
+	}
+}
+
+func noopDiskScan(_ context.Context) *disk.Result { return sampleDiskResult() }
+
 func noopRescan(_ context.Context, _ []string) *report.Report { return sampleReport() }
 func noopPersist(_ *report.Report) error                      { return nil }
 
 func newTestModel() Model {
 	run := iexec.NewRunner(&iexec.Recorder{}, 30)
-	m := New(context.Background(), run, sampleReport(), noopRescan, noopPersist)
+	m := New(context.Background(), run, sampleReport(), noopRescan, noopPersist).
+		WithDisk(sampleDiskResult(), noopDiskScan)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	return updated.(Model)
 }
 
 func TestBuildTabsRows(t *testing.T) {
-	tabs := buildTabs(sampleReport(), false)
-	wantTitles := []string{"앱", "brew", "패키지", "런타임", "업데이트", "launchd"}
+	tabs := buildTabs(sampleReport(), sampleDiskResult(), false)
+	wantTitles := []string{"앱", "brew", "패키지", "런타임", "업데이트", "디스크", "launchd"}
 	if len(tabs) != len(wantTitles) {
 		t.Fatalf("탭 개수 = %d, want %d", len(tabs), len(wantTitles))
 	}
@@ -73,7 +95,7 @@ func TestBuildTabsRows(t *testing.T) {
 
 	// 탭 라벨 카운트는 실제 항목 수여야 한다(플레이스홀더 행 제외). sampleReport는
 	// 앱 2개, brew formula 1 + cask 1, npm 1, 런타임 설치 1(go)이므로 그대로 대응.
-	wantCounts := map[string]int{"앱": 2, "brew": 2, "패키지": 1, "런타임": 1}
+	wantCounts := map[string]int{"앱": 2, "brew": 2, "패키지": 1, "런타임": 1, "디스크": 3}
 	for _, tb := range tabs {
 		if want, ok := wantCounts[tb.title]; ok && tb.count != want {
 			t.Errorf("tabs[%s].count = %d, want %d", tb.title, tb.count, want)
@@ -89,7 +111,7 @@ func TestOutdatedTabCountExcludesPlaceholder(t *testing.T) {
 	rep.Sections.Brew.Formulae[0].Outdated = false
 	rep.Sections.Npm.Packages[0].Outdated = false
 
-	tabs := buildTabs(rep, false)
+	tabs := buildTabs(rep, sampleDiskResult(), false)
 	var updateTab *tab
 	for i := range tabs {
 		if tabs[i].title == "업데이트" {
@@ -383,7 +405,7 @@ func TestSortToggleKey(t *testing.T) {
 	m := newTestModel()
 	// sampleReport의 앱은 이름순으로 Godot, iTerm. 용량은 iTerm만 있다.
 	m.rep.Sections.Apps[1].SizeKB = report.Ptr(500 * 1024)
-	m.tabs = buildTabs(m.rep, false)
+	m.tabs = buildTabs(m.rep, m.diskRes, false)
 
 	if first := m.tabs[0].rows[0].target; first != "Godot" {
 		t.Fatalf("기본은 이름순이어야 함: 첫 행 = %s", first)
@@ -457,5 +479,114 @@ func TestEnterDoesNotStartDeleteInBrowse(t *testing.T) {
 	m = updated.(Model)
 	if m.mode != modeBuilding || cmd == nil {
 		t.Errorf("d 후 mode=%d cmd=%v, want modeBuilding + 커맨드", m.mode, cmd != nil)
+	}
+}
+
+// 디스크 탭 위치로 이동한다(탭 순서가 바뀌어도 깨지지 않게 제목으로 찾는다).
+func gotoDiskTab(t *testing.T, m Model) Model {
+	t.Helper()
+	for i, tb := range m.tabs {
+		if tb.title == tabDisk {
+			m.active = i
+			m.sel, m.top = 0, 0
+			return m
+		}
+	}
+	t.Fatal("디스크 탭이 없음")
+	return m
+}
+
+// 디스크 탭의 d는 앱 삭제가 아니라 disk 정리 계획을 만든다(플래너가 다르다).
+func TestDiskTabDeleteBuildsCleanupPlan(t *testing.T) {
+	m := gotoDiskTab(t, newTestModel())
+	if m.currentRow().target != diskTargetPrefix+"orbstack-data" {
+		t.Fatalf("첫 행 target = %q", m.currentRow().target)
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = updated.(Model)
+	if m.mode != modeBuilding || m.buildingVerb != "정리" {
+		t.Fatalf("mode=%d verb=%q, want modeBuilding/정리", m.mode, m.buildingVerb)
+	}
+	if cmd == nil {
+		t.Fatal("정리 계획 커맨드가 없음")
+	}
+	msg, ok := cmd().(planMsg)
+	if !ok || msg.plan == nil {
+		t.Fatalf("planMsg가 아님: %T", cmd())
+	}
+	if len(msg.plan.Targets) != 1 || !strings.Contains(msg.plan.Targets[0].Name, "OrbStack") {
+		t.Errorf("계획 타깃 = %+v", msg.plan.Targets)
+	}
+	// 재다운로드가 비싼 항목이라 승인 뒤 y/N 재확인이 필요하다.
+	if !msg.plan.RequireConfirm {
+		t.Error("expensive 항목인데 RequireConfirm이 false")
+	}
+
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+	if m.mode != modePlan || !m.needConfirm {
+		t.Errorf("mode=%d needConfirm=%v, want modePlan/true", m.mode, m.needConfirm)
+	}
+}
+
+// 디스크 탭에서 u(업데이트)는 아무 일도 하지 않는다 — 캐시 위치는 업데이트 대상이 아니다.
+func TestDiskTabIgnoresUpgradeKey(t *testing.T) {
+	m := gotoDiskTab(t, newTestModel())
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	m = updated.(Model)
+	if m.mode != modeBrowse || cmd != nil {
+		t.Errorf("디스크 탭 u가 동작함: mode=%d cmd=%v", m.mode, cmd != nil)
+	}
+}
+
+// 디스크 선택은 다른 탭의 삭제 대상과 섞이지 않는다(target 네임스페이스).
+func TestDiskSelectionSeparateFromApps(t *testing.T) {
+	m := gotoDiskTab(t, newTestModel())
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // orbstack 마크
+	m = updated.(Model)
+
+	if ids := m.selectedDiskIDs(); len(ids) != 1 || !ids["orbstack-data"] {
+		t.Errorf("디스크 선택 = %v", ids)
+	}
+	// 앱 탭 기준 selectedTargets에는 디스크 항목이 섞이면 안 된다.
+	m.active = 0
+	m.sel = 0
+	for _, name := range m.selectedTargets() {
+		if strings.HasPrefix(name, diskTargetPrefix) {
+			t.Errorf("앱 삭제 대상에 디스크 항목이 섞임: %s", name)
+		}
+	}
+}
+
+// 디스크 정리 잡이 끝나면 인벤토리 재스캔이 아니라 디스크 재측정이 돌아야 한다.
+func TestDiskJobTriggersDiskRescan(t *testing.T) {
+	inv, wantDisk := splitDiskSentinel([]string{sourceDisk})
+	if len(inv) != 0 || !wantDisk {
+		t.Errorf("센티널 분리 실패: inv=%v disk=%v", inv, wantDisk)
+	}
+	inv, wantDisk = splitDiskSentinel([]string{"apps", sourceDisk, "brew"})
+	if len(inv) != 2 || !wantDisk {
+		t.Errorf("혼합 분리 실패: inv=%v disk=%v", inv, wantDisk)
+	}
+
+	m := newTestModel()
+	updated, _ := m.Update(diskScannedMsg{res: sampleDiskResult()})
+	m = updated.(Model)
+	m = gotoDiskTab(t, m)
+	if m.tabs[m.active].count != 3 {
+		t.Errorf("디스크 재측정 후 카운트 = %d, want 3", m.tabs[m.active].count)
+	}
+}
+
+// 고아 캐시는 목록에서 눈에 띄어야 한다(macinv만 할 수 있는 판단).
+func TestDiskTabShowsOrphanBadge(t *testing.T) {
+	m := gotoDiskTab(t, newTestModel())
+	view := m.View()
+	if !strings.Contains(view, "고아 캐시") {
+		t.Errorf("디스크 탭에 고아 캐시 표시가 없음:\n%s", view)
+	}
+	if !strings.Contains(view, "정리 시 회수 가능") {
+		t.Errorf("회수 가능량 요약이 없음:\n%s", view)
 	}
 }

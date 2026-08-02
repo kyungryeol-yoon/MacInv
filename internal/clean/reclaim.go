@@ -85,6 +85,10 @@ func parseDuSizes(out string) map[string]int {
 // enabled는 [확신낮음] 토글 상태다(nil이면 확신낮음 전부 제외 — --apply 기본값과 같다).
 // ok=false면 측정값이 없어 표시할 게 없다는 뜻이다.
 func ReclaimKB(p *Plan, enabled map[string]bool) (kb int, ok bool) {
+	if p.ExtraReclaimKB > 0 {
+		kb += p.ExtraReclaimKB
+		ok = true
+	}
 	for _, t := range p.Targets {
 		for _, pm := range t.TrashPaths {
 			if pm.Confidence == ConfLow && !enabled[pm.Path] {

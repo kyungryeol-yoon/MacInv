@@ -25,6 +25,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newRuntimesCmd())
 	root.AddCommand(newCleanCmd())
 	root.AddCommand(newOrphansCmd())
+	root.AddCommand(newDiskCmd())
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newTuiCmd())
 	return root
