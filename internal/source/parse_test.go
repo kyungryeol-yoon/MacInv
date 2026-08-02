@@ -183,3 +183,29 @@ func TestParseLaunchdJSON(t *testing.T) {
 		t.Errorf("runAtLoad = %v", runAtLoad)
 	}
 }
+
+func TestSumDuKB(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want int
+	}{
+		{"빈 출력", "", 0},
+		{"단일 경로", "12345\t/Users/x/Library/Caches/com.a.b\n", 12345},
+		{
+			"여러 경로 합산",
+			"100\t/a\n200\t/b\n70453708\t/Users/x/Library/Application Support/Notion\n",
+			70454008,
+		},
+		// du는 권한 없는 하위 경로를 stderr로 흘리고 나머지는 stdout에 그대로 낸다.
+		{"불완전한 줄 무시", "100\t/a\ndu: /b: Permission denied\n50\t/c\n", 150},
+		{"숫자가 아닌 첫 칸 무시", "abc\t/a\n30\t/b\n", 30},
+		// 경로에 공백이 있어도 첫 칸만 쓰므로 안전하다.
+		{"공백 포함 경로", "42\t/Users/x/Library/Application Support/Google Chrome\n", 42},
+	}
+	for _, tt := range tests {
+		if got := sumDuKB(tt.out); got != tt.want {
+			t.Errorf("%s: sumDuKB = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}

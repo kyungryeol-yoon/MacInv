@@ -82,23 +82,8 @@ func PrintSummary(w io.Writer, r *Report) {
 		fmt.Fprintf(w, "\n  ✅ 모든 패키지가 최신 상태입니다.\n")
 	}
 
-	// 용량 상위 앱
-	sized := make([]App, 0, len(s.Apps))
-	for _, a := range s.Apps {
-		if a.SizeKB != nil && *a.SizeKB > 0 {
-			sized = append(sized, a)
-		}
-	}
-	if len(sized) > 0 {
-		sort.Slice(sized, func(i, j int) bool { return *sized[i].SizeKB > *sized[j].SizeKB })
-		fmt.Fprintf(w, "\n%s\n 💾 용량 큰 앱 Top 10\n%s\n", line, line)
-		for i, a := range sized {
-			if i >= 10 {
-				break
-			}
-			fmt.Fprintf(w, "  %9s  %s\n", HumanSize(a.SizeKB), a.Name)
-		}
-	}
+	// 용량 상위 앱 — 번들만이 아니라 데이터/캐시를 합친 실제 디스크 점유 기준.
+	printSizeSummary(w, line, s.Apps)
 
 	// 개발 런타임 (설치된 언어 버전)
 	printRuntimeSummary(w, line, r.Runtimes, r.VersionManagers)
@@ -107,6 +92,56 @@ func PrintSummary(w io.Writer, r *Report) {
 		fmt.Fprintf(w, "\n  ⚠️  경고 %d건 (상세는 JSON errors 필드 참고)\n", len(r.Errors))
 	}
 	fmt.Fprintln(w)
+}
+
+// TopBySize는 앱을 실제 디스크 점유(번들+데이터) 내림차순으로 정렬해 상위 n개를 돌려준다.
+// 용량을 못 잰 앱(nil)과 0바이트는 제외한다. 순수 함수 — 테스트 대상.
+func TopBySize(apps []App, n int) []App {
+	sized := make([]App, 0, len(apps))
+	for _, a := range apps {
+		if t := a.TotalSizeKB(); t != nil && *t > 0 {
+			sized = append(sized, a)
+		}
+	}
+	sort.SliceStable(sized, func(i, j int) bool {
+		return *sized[i].TotalSizeKB() > *sized[j].TotalSizeKB()
+	})
+	if n > 0 && len(sized) > n {
+		sized = sized[:n]
+	}
+	return sized
+}
+
+// printSizeSummary는 "용량 큰 앱 Top 10"을 번들/데이터 내역과 함께 출력한다.
+func printSizeSummary(w io.Writer, line string, apps []App) {
+	top := TopBySize(apps, 10)
+	if len(top) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n%s\n 💾 용량 큰 앱 Top 10  (앱 번들 + 데이터/캐시)\n%s\n", line, line)
+	for _, a := range top {
+		fmt.Fprintf(w, "  %9s  %-28s %s\n",
+			HumanSize(a.TotalSizeKB()), trimName(a.Name, 28), sizeBreakdown(a))
+	}
+	fmt.Fprintf(w, "\n  데이터가 큰 앱은 `macinv clean <이름>`으로 지울 항목을 확인할 수 있습니다.\n")
+}
+
+// sizeBreakdown은 "앱 300 MB + 데이터 67.3 GB" 꼴의 내역 문자열을 만든다.
+// 데이터가 없거나 0이면 내역을 생략한다(합계만으로 충분).
+func sizeBreakdown(a App) string {
+	if a.DataSizeKB == nil || *a.DataSizeKB == 0 {
+		return ""
+	}
+	return fmt.Sprintf("앱 %s + 데이터 %s", HumanSize(a.SizeKB), HumanSize(a.DataSizeKB))
+}
+
+// trimName은 요약 표의 이름 칸을 넘치지 않게 자른다.
+func trimName(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
 }
 
 // printRuntimeSummary는 설치된 개발 런타임(언어) 버전을 요약에 출력한다.

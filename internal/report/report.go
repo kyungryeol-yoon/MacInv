@@ -33,6 +33,24 @@ type App struct {
 	Version   *string `json:"version"`
 	DateAdded *string `json:"date_added"`
 	SizeKB    *int    `json:"size_kb"`
+	// DataSizeKB는 ~/Library 등지에 쌓인 앱 데이터/캐시 용량이다(번들 밖).
+	// 앱 번들은 수백 MB인데 데이터가 수십 GB인 경우가 흔해, 실제 디스크 점유는 이쪽이 좌우한다.
+	DataSizeKB *int `json:"data_size_kb,omitempty"`
+}
+
+// TotalSizeKB는 번들+데이터 합계다. 둘 다 없으면 nil.
+func (a App) TotalSizeKB() *int {
+	if a.SizeKB == nil && a.DataSizeKB == nil {
+		return nil
+	}
+	total := 0
+	if a.SizeKB != nil {
+		total += *a.SizeKB
+	}
+	if a.DataSizeKB != nil {
+		total += *a.DataSizeKB
+	}
+	return &total
 }
 
 // Brew는 Homebrew 전체 결과다.

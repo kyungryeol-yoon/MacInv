@@ -251,7 +251,8 @@ func appRows(apps []report.App) []row {
 		}
 		name := strings.TrimSuffix(a.Name, ".app")
 		rows = append(rows, row{
-			text:   fmt.Sprintf("%-28s %-14s %s", trunc(name, 28), report.HumanSize(a.SizeKB), dimStyle.Render(ver)),
+			// 용량은 번들+데이터 합계 — 번들만 보면 Electron 앱의 수십 GB 캐시가 안 보인다.
+			text:   fmt.Sprintf("%-28s %-14s %s", trunc(name, 28), report.HumanSize(a.TotalSizeKB()), dimStyle.Render(ver)),
 			target: name,
 		})
 	}

@@ -159,6 +159,12 @@ func IsAppleSystemApp(bundleID string) bool {
 	return strings.HasPrefix(bundleID, "com.apple.")
 }
 
+// LeftoverPaths는 앱이 ~/Library 등지에 남긴 데이터 경로를 돌려준다(읽기 전용).
+// 삭제 계획과 같은 매칭 규칙을 쓰므로, scan의 용량 집계가 "clean이 지울 대상"과 일치한다.
+func LeftoverPaths(home, bundleID, appName string) []PathMatch {
+	return gatherLeftovers(home, bundleID, appName)
+}
+
 // globSpec은 잔여물 후보를 찾는 glob 패턴 하나다(존재 확인 전).
 type globSpec struct {
 	pattern    string

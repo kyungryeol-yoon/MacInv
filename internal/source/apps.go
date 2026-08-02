@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kyungryeol-yoon/macinv/internal/clean"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
@@ -96,8 +97,54 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 	}
 	if s.withSize {
 		app.SizeKB = s.duKB(ctx, path)
+		app.DataSizeKB = s.dataKB(ctx, app)
 	}
 	return app
+}
+
+// dataKB는 앱 번들 밖(~/Library 등)에 쌓인 데이터/캐시 용량을 잰다.
+// 경로 목록은 clean의 잔여물 매칭을 그대로 쓴다 — "clean이 지울 대상"과 집계가 일치한다.
+func (s *appsSource) dataKB(ctx context.Context, app report.App) *int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	bundleID := ""
+	if app.BundleID != nil {
+		bundleID = *app.BundleID
+	}
+	matches := clean.SizePaths(home, bundleID, app.Name)
+	if len(matches) == 0 {
+		return nil
+	}
+	// du를 경로마다 부르지 않고 한 번에 넘긴다(프로세스 스폰 1회).
+	args := make([]string, 0, len(matches)+2)
+	args = append(args, "-sk")
+	for _, m := range matches {
+		args = append(args, m.Path)
+	}
+	// 캐시가 수십 GB로 불어난 앱(Electron Service Worker 등)은 walk가 오래 걸린다.
+	out, err := s.run.Run(ctx, iexec.Opt{TimeoutSec: 300}, "du", args...)
+	if err != nil {
+		return nil
+	}
+	return report.Ptr(sumDuKB(out))
+}
+
+// sumDuKB는 `du -sk a b c`의 여러 줄 출력에서 KB 합계를 낸다(순수 함수 — 테스트 대상).
+// 권한 오류로 일부 경로가 빠져도 나머지는 그대로 합산한다.
+func sumDuKB(out string) int {
+	total := 0
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			total += n
+		}
+	}
+	return total
 }
 
 // parseMdlsKeyed는 mdls의 "속성 = 값" 줄들을 파싱한다(순수 함수 — 테스트 대상).
