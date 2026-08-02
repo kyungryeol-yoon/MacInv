@@ -121,18 +121,19 @@ func printSizeSummary(w io.Writer, line string, apps []App) {
 	fmt.Fprintf(w, "\n%s\n 💾 용량 큰 앱 Top 10  (앱 번들 + 데이터/캐시)\n%s\n", line, line)
 	for _, a := range top {
 		fmt.Fprintf(w, "  %9s  %-28s %s\n",
-			HumanSize(a.TotalSizeKB()), trimName(a.Name, 28), sizeBreakdown(a))
+			HumanSize(a.TotalSizeKB()), trimName(a.Name, 28), SizeBreakdown(a))
 	}
 	fmt.Fprintf(w, "\n  데이터가 큰 앱은 `macinv clean <이름>`으로 지울 항목을 확인할 수 있습니다.\n")
 }
 
-// sizeBreakdown은 "앱 300 MB + 데이터 67.3 GB" 꼴의 내역 문자열을 만든다.
-// 데이터가 없거나 0이면 내역을 생략한다(합계만으로 충분).
-func sizeBreakdown(a App) string {
+// SizeBreakdown은 "번들 300 MB + 데이터 67.3 GB" 꼴의 내역 문자열을 만든다(CLI 요약/TUI 공용).
+// 합계만 보면 무엇을 지워야 줄어드는지 알 수 없다 — 번들은 앱을 지워야 줄고,
+// 데이터는 clean으로 줄일 여지가 있다. 데이터가 없거나 0이면 내역을 생략한다.
+func SizeBreakdown(a App) string {
 	if a.DataSizeKB == nil || *a.DataSizeKB == 0 {
 		return ""
 	}
-	return fmt.Sprintf("앱 %s + 데이터 %s", HumanSize(a.SizeKB), HumanSize(a.DataSizeKB))
+	return fmt.Sprintf("번들 %s + 데이터 %s", HumanSize(a.SizeKB), HumanSize(a.DataSizeKB))
 }
 
 // trimName은 요약 표의 이름 칸을 넘치지 않게 자른다.

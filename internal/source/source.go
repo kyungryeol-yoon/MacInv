@@ -38,12 +38,16 @@ type Source interface {
 // Options는 스캔 동작 옵션이다.
 type Options struct {
 	WithSize bool // GUI 앱 용량(du) 계산 여부
+	// Progress는 오래 걸리는 단계의 진행률 콜백이다(nil이면 보고하지 않음).
+	// 앱 데이터 용량 측정(du)은 수십 GB 캐시를 walk해 수 초~수십 초가 걸려
+	// 진행 표시가 없으면 멈춘 것처럼 보인다. 호출은 동시에 들어오므로 구현이 직렬화해야 한다.
+	Progress func(stage string, done, total int)
 }
 
 // Default는 이 맥에서 스캔할 기본 소스 목록을 만든다.
 func Default(run *iexec.Runner, opt Options) []Source {
 	return []Source{
-		&appsSource{run: run, withSize: opt.WithSize},
+		&appsSource{run: run, withSize: opt.WithSize, progress: opt.Progress},
 		&brewSource{run: run},
 		&npmSource{run: run},
 		&pipxSource{run: run},

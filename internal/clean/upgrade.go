@@ -39,14 +39,14 @@ func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan
 	if formulaOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindBrewFormula, Name: name,
-			Commands:      []string{"brew upgrade " + name},
+			Argv:          [][]string{{"brew", "upgrade", name}},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}
 	if caskOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindBrewCask, Name: name,
-			Commands:      []string{"brew upgrade --cask " + name},
+			Argv:          [][]string{{"brew", "upgrade", "--cask", name}},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}
@@ -56,7 +56,7 @@ func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan
 	if masOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindMas, Name: name,
-			Commands:      []string{"mas upgrade " + masID},
+			Argv:          [][]string{{"mas", "upgrade", masID}},
 			CmdTimeoutSec: upgradeTimeoutSec,
 		})
 	}
@@ -69,10 +69,10 @@ func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan
 func npmUpgradeTarget(name string) Target {
 	t := Target{Kind: KindNpm, Name: name, CmdTimeoutSec: upgradeTimeoutSec}
 	if name == "npm" {
-		t.Commands = []string{"npx -y npm@latest install -g npm@latest"}
+		t.Argv = [][]string{{"npx", "-y", "npm@latest", "install", "-g", "npm@latest"}}
 		t.Warnings = []string{"npm 자체 업데이트는 안전을 위해 npx 경유로 실행합니다(셀프 업데이트 실패 방지)."}
 	} else {
-		t.Commands = []string{"npm install -g " + name + "@latest"}
+		t.Argv = [][]string{{"npm", "install", "-g", name + "@latest"}}
 	}
 	return t
 }
@@ -86,13 +86,13 @@ func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
 		case "brew":
 			plan.Targets = append(plan.Targets, Target{
 				Kind: KindBrewFormula, Name: r.Name,
-				Commands:      []string{"brew upgrade " + r.Name},
+				Argv:          [][]string{{"brew", "upgrade", r.Name}},
 				CmdTimeoutSec: upgradeTimeoutSec,
 			})
 		case "cask":
 			plan.Targets = append(plan.Targets, Target{
 				Kind: KindBrewCask, Name: r.Name,
-				Commands:      []string{"brew upgrade --cask " + r.Name},
+				Argv:          [][]string{{"brew", "upgrade", "--cask", r.Name}},
 				CmdTimeoutSec: upgradeTimeoutSec,
 			})
 		case "npm":
@@ -101,7 +101,7 @@ func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
 			if r.ID != "" {
 				plan.Targets = append(plan.Targets, Target{
 					Kind: KindMas, Name: r.Name,
-					Commands:      []string{"mas upgrade " + r.ID},
+					Argv:          [][]string{{"mas", "upgrade", r.ID}},
 					CmdTimeoutSec: upgradeTimeoutSec,
 				})
 			}

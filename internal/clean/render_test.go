@@ -80,7 +80,7 @@ func TestWithSelectedLow(t *testing.T) {
 
 func TestRenderUpgradePlanTitle(t *testing.T) {
 	p := &Plan{Query: "git", Verb: "업데이트", Icon: "⬆️", Targets: []Target{{
-		Kind: KindBrewFormula, Name: "git", Commands: []string{"brew upgrade git"},
+		Kind: KindBrewFormula, Name: "git", Argv: [][]string{{"brew", "upgrade", "git"}},
 	}}}
 	out := RenderPlanText(p)
 	if !strings.Contains(out, "⬆️ 업데이트 계획: 'git'") {
@@ -104,4 +104,27 @@ func planHasPath(p *Plan, path string) bool {
 		}
 	}
 	return false
+}
+
+// 계획 명령은 argv로 저장하고 표시할 때만 문자열로 만든다.
+// 공백/따옴표가 든 인자가 표시에서도, 실행에서도 하나의 인자로 유지되는지 확인한다.
+func TestShellQuote(t *testing.T) {
+	cases := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"brew", "uninstall", "--cask", "iterm2"}, "brew uninstall --cask iterm2"},
+		{[]string{"npm", "install", "-g", "@google/gemini-cli@latest"}, "npm install -g @google/gemini-cli@latest"},
+		// 공백 포함 인자 — 예전 strings.Fields 재분해에서 두 조각으로 깨지던 형태.
+		{[]string{"docker", "system", "prune", "--filter", "until=24h"}, "docker system prune --filter until=24h"},
+		{[]string{"trash", "/Users/c/Library/Application Support/My App"},
+			"trash '/Users/c/Library/Application Support/My App'"},
+		{[]string{"echo", "it's"}, `echo 'it'\''s'`},
+		{[]string{"echo", ""}, "echo ''"},
+	}
+	for _, c := range cases {
+		if got := ShellQuote(c.argv); got != c.want {
+			t.Errorf("ShellQuote(%q) = %q, want %q", c.argv, got, c.want)
+		}
+	}
 }

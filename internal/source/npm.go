@@ -16,7 +16,7 @@ type npmSource struct {
 	run *iexec.Runner
 }
 
-func (s *npmSource) Name() string   { return NameNpm }
+func (s *npmSource) Name() string    { return NameNpm }
 func (s *npmSource) Available() bool { _, err := exec.LookPath("npm"); return err == nil }
 
 func (s *npmSource) Scan(ctx context.Context) (any, error) {

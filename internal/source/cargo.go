@@ -15,7 +15,7 @@ type cargoSource struct {
 	run *iexec.Runner
 }
 
-func (s *cargoSource) Name() string   { return NameCargo }
+func (s *cargoSource) Name() string    { return NameCargo }
 func (s *cargoSource) Available() bool { _, err := exec.LookPath("cargo"); return err == nil }
 
 func (s *cargoSource) Scan(ctx context.Context) (any, error) {

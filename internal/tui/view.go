@@ -170,6 +170,10 @@ func (m Model) planView() string {
 	if len(m.toggleIdx) > 0 {
 		b.WriteString(dimStyle.Render(fmt.Sprintf("\n  [확신낮음] %d개 — ↑/↓ 이동, space로 켜야 삭제 대상에 포함(기본 제외).", len(m.toggleIdx))) + "\n")
 	}
+	// 회수 예상은 지금 켜진 토글 기준으로 다시 계산한다(체크박스를 켜면 즉시 늘어난다).
+	if rl := clean.ReclaimLine(m.plan, m.lowOn); rl != "" {
+		b.WriteString("\n  " + okStyle.Render(rl) + "\n")
+	}
 	// 경고 문구는 계획 종류에 맞춘다: 휴지통 경로가 있으면 삭제, 없으면(업데이트 등) 명령 실행.
 	hasTrash := false
 	for _, t := range m.plan.Targets {
@@ -281,7 +285,10 @@ func appRows(apps []report.App, sortBySize bool) []row {
 		name := strings.TrimSuffix(a.Name, ".app")
 		rows = append(rows, row{
 			// 용량은 번들+데이터 합계 — 번들만 보면 Electron 앱의 수십 GB 캐시가 안 보인다.
-			text:   fmt.Sprintf("%-28s %-14s %s", trunc(name, 28), report.HumanSize(a.TotalSizeKB()), dimStyle.Render(ver)),
+			// 합계 옆에 내역(번들/데이터)을 같이 보여준다: 데이터 쪽이 크면 clean으로 줄일 여지가 있다는 신호다.
+			text: fmt.Sprintf("%-28s %10s  %-26s %s",
+				trunc(name, 28), report.HumanSize(a.TotalSizeKB()),
+				dimStyle.Render(report.SizeBreakdown(a)), dimStyle.Render(ver)),
 			target: name,
 		})
 	}

@@ -1,9 +1,8 @@
-package clean
+package paths
 
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -20,24 +19,10 @@ import (
 // 삭제 계획(BuildPlan)은 벤더 공유 여부를 따로 판정하므로 여기 결과를 쓰지 않는다.
 func SizePaths(home, bundleID, appName string) []PathMatch {
 	out := LeftoverPaths(home, bundleID, appName)
-	seen := map[string]bool{}
-	for _, m := range out {
-		seen[m.Path] = true
-	}
 	add := func(path, reason string) {
-		if path == "" || seen[path] || IsProtected(path) {
+		if path == "" || IsProtected(path) || !Exists(path) {
 			return
 		}
-		if _, err := os.Lstat(path); err != nil {
-			return
-		}
-		// 이미 잡힌 경로의 하위면 중복 계산이 된다.
-		for p := range seen {
-			if strings.HasPrefix(path, p+string(filepath.Separator)) {
-				return
-			}
-		}
-		seen[path] = true
 		out = append(out, PathMatch{Path: path, Confidence: ConfLow, Reason: reason})
 	}
 
@@ -47,27 +32,57 @@ func SizePaths(home, bundleID, appName string) []PathMatch {
 	for _, p := range groupContainersByName(home, appName) {
 		add(p, "그룹 컨테이너 (이름 기반 · 측정용)")
 	}
+	return DedupContained(out)
+}
+
+// isUnder는 child가 parent의 하위 경로인지 본다(같은 경로는 하위가 아니다).
+func isUnder(child, parent string) bool {
+	return strings.HasPrefix(child, parent+string(filepath.Separator))
+}
+
+// DedupContained는 부모/자식 관계로 겹치는 경로를 정리한다(순수 함수 — 테스트 대상).
+// du -sk에 부모와 자식을 함께 넘기면 자식이 **두 번** 계산돼 용량 수치의 신뢰가 깨진다.
+// 양방향으로 검사한다: 새 경로가 기존의 하위면 버리고, 반대로 부모면 기존 자식들을 걷어낸다.
+// (예전에는 "새 경로가 기존의 하위인지"만 봐서 부모가 나중에 들어오면 이중 계산이 됐다.)
+func DedupContained(in []PathMatch) []PathMatch {
+	var out []PathMatch
+	for _, m := range in {
+		if m.Path == "" {
+			continue
+		}
+		covered := false
+		kept := out[:0]
+		for _, e := range out {
+			if e.Path == m.Path || isUnder(m.Path, e.Path) {
+				covered = true // 이미 담긴 경로(또는 그 부모)가 m을 포함한다
+			} else if isUnder(e.Path, m.Path) {
+				continue // m이 부모 → 기존 자식은 제거
+			}
+			kept = append(kept, e)
+		}
+		out = kept
+		if !covered {
+			out = append(out, m)
+		}
+	}
 	return out
 }
 
 // vendorAppDirs는 벤더 폴더 안의 이 앱 전용 하위 폴더들을 돌려준다.
 // (예: ~/Library/Application Support/Google/Chrome). 벤더 공유 컴포넌트는 포함하지 않는다.
 func vendorAppDirs(home, bundleID, appName string) []string {
-	v, subdir, ok := lookupVendor(vendors(), bundleID, appName)
+	v, subdir, ok := LookupVendor(Vendors(), bundleID, appName)
 	if !ok || subdir == "" {
 		return nil
 	}
 	var paths []string
-	for _, root := range libraryRoots(home) {
+	for _, root := range LibraryRoots(home) {
 		for _, folder := range v.Folders {
 			paths = append(paths, filepath.Join(root, folder, subdir))
 		}
 	}
 	return paths
 }
-
-// teamIDPrefix는 그룹 컨테이너 이름 앞의 개발자 팀 ID다(예: HUAQ24HBR6.dev.orbstack).
-var teamIDPrefix = regexp.MustCompile(`^[A-Z0-9]{10}\.`)
 
 // groupContainersByName은 팀 ID를 뗀 그룹 컨테이너 이름의 마지막 마디가 앱 이름과
 // 같은 디렉토리를 찾는다(순수 매칭은 groupContainerMatchesApp — 테스트 대상).
@@ -94,7 +109,7 @@ func groupContainerMatchesApp(folder, appName string) bool {
 	if name == "" {
 		return false
 	}
-	stripped := teamIDPrefix.ReplaceAllString(folder, "")
+	stripped := StripTeamIDPrefix(folder)
 	idx := strings.LastIndex(stripped, ".")
 	if idx < 0 {
 		return false // 마디가 하나뿐이면 Bundle ID 꼴이 아니다 — 이름 매칭 대상 아님

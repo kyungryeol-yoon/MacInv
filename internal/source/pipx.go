@@ -15,7 +15,7 @@ type pipxSource struct {
 	run *iexec.Runner
 }
 
-func (s *pipxSource) Name() string   { return NamePipx }
+func (s *pipxSource) Name() string    { return NamePipx }
 func (s *pipxSource) Available() bool { _, err := exec.LookPath("pipx"); return err == nil }
 
 func (s *pipxSource) Scan(ctx context.Context) (any, error) {

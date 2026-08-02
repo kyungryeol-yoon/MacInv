@@ -15,7 +15,7 @@ type brewSource struct {
 	run *iexec.Runner
 }
 
-func (s *brewSource) Name() string   { return NameBrew }
+func (s *brewSource) Name() string    { return NameBrew }
 func (s *brewSource) Available() bool { _, err := exec.LookPath("brew"); return err == nil }
 
 func (s *brewSource) Scan(ctx context.Context) (any, error) {
@@ -46,14 +46,14 @@ type brewInfoRaw struct {
 		Name         string   `json:"name"`
 		Dependencies []string `json:"dependencies"`
 		Installed    []struct {
-			Version             string `json:"version"`
-			InstalledOnRequest  bool   `json:"installed_on_request"`
-			InstalledAsDependency bool `json:"installed_as_dependency"`
+			Version               string `json:"version"`
+			InstalledOnRequest    bool   `json:"installed_on_request"`
+			InstalledAsDependency bool   `json:"installed_as_dependency"`
 		} `json:"installed"`
 	} `json:"formulae"`
 	Casks []struct {
-		Token     string `json:"token"`
-		Installed string `json:"installed"`
+		Token     string            `json:"token"`
+		Installed string            `json:"installed"`
 		Artifacts []json.RawMessage `json:"artifacts"`
 	} `json:"casks"`
 }

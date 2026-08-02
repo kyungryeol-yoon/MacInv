@@ -62,13 +62,13 @@ type Brew struct {
 
 // Formula는 brew formula 한 개다.
 type Formula struct {
-	Name                 string   `json:"name"`
-	Version              *string  `json:"version"`
-	InstalledOnRequest   bool     `json:"installed_on_request"`
-	InstalledAsDependency bool    `json:"installed_as_dependency"`
-	Dependencies         []string `json:"dependencies"`
-	LatestVersion        *string  `json:"latest_version"`
-	Outdated             bool     `json:"outdated"`
+	Name                  string   `json:"name"`
+	Version               *string  `json:"version"`
+	InstalledOnRequest    bool     `json:"installed_on_request"`
+	InstalledAsDependency bool     `json:"installed_as_dependency"`
+	Dependencies          []string `json:"dependencies"`
+	LatestVersion         *string  `json:"latest_version"`
+	Outdated              bool     `json:"outdated"`
 }
 
 // Cask는 brew cask 한 개다.
@@ -82,8 +82,8 @@ type Cask struct {
 
 // Npm은 npm 글로벌 결과다.
 type Npm struct {
-	Root     *string       `json:"root"`
-	Packages []NpmPackage  `json:"packages"`
+	Root     *string      `json:"root"`
+	Packages []NpmPackage `json:"packages"`
 }
 
 // NpmPackage는 npm 글로벌 패키지 한 개다.

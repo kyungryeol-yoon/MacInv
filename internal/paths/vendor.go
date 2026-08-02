@@ -1,9 +1,8 @@
-package clean
+package paths
 
 import (
 	_ "embed"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -16,7 +15,7 @@ type Vendor struct {
 	Name             string            `json:"vendor"`
 	BundlePrefixes   []string          `json:"bundle_prefixes"`
 	Folders          []string          `json:"folders"` // Library 루트들 아래 벤더 폴더 이름
-	Apps             map[string]string `json:"apps"`     // bundleID -> 벤더 폴더 안 앱 하위 폴더 이름
+	Apps             map[string]string `json:"apps"`    // bundleID -> 벤더 폴더 안 앱 하위 폴더 이름
 	SharedComponents []SharedComponent `json:"shared_components"`
 }
 
@@ -35,16 +34,16 @@ var (
 	vendorCache vendorTable
 )
 
-func vendors() []Vendor {
+func Vendors() []Vendor {
 	vendorOnce.Do(func() {
 		_ = json.Unmarshal(vendorsJSON, &vendorCache) // 임베드된 데이터라 실패할 일 없음
 	})
 	return vendorCache.Vendors
 }
 
-// lookupVendor는 Bundle ID로 벤더와 앱 하위 폴더 이름을 찾는다(순수 함수 — 테스트 대상).
+// LookupVendor는 Bundle ID로 벤더와 앱 하위 폴더 이름을 찾는다(순수 함수 — 테스트 대상).
 // 앱이 apps 맵에 없으면 appName에서 벤더명을 떼어 하위 폴더를 추정한다.
-func lookupVendor(vs []Vendor, bundleID, appName string) (v Vendor, appSubdir string, ok bool) {
+func LookupVendor(vs []Vendor, bundleID, appName string) (v Vendor, appSubdir string, ok bool) {
 	for _, cand := range vs {
 		for _, pfx := range cand.BundlePrefixes {
 			if strings.HasPrefix(bundleID, pfx) {
@@ -69,8 +68,8 @@ func deriveSubdir(vendor, appName string) string {
 	return trimmed
 }
 
-// countVendorApps는 설치된 Bundle ID들 중 벤더 접두사에 맞는 개수를 센다(exclude는 대상 자신).
-func countVendorApps(v Vendor, installedIDs []string, exclude string) int {
+// CountVendorApps는 설치된 Bundle ID들 중 벤더 접두사에 맞는 개수를 센다(exclude는 대상 자신).
+func CountVendorApps(v Vendor, installedIDs []string, exclude string) int {
 	n := 0
 	for _, id := range installedIDs {
 		if id == exclude {
@@ -84,15 +83,4 @@ func countVendorApps(v Vendor, installedIDs []string, exclude string) int {
 		}
 	}
 	return n
-}
-
-// libraryRoots는 벤더 폴더가 존재할 수 있는 Library 하위 루트다.
-func libraryRoots(home string) []string {
-	lib := filepath.Join(home, "Library")
-	return []string{
-		filepath.Join(lib, "Application Support"),
-		filepath.Join(lib, "Caches"),
-		filepath.Join(lib, "Logs"),
-		lib, // ~/Library/<Vendor> (예: ~/Library/Google)
-	}
 }

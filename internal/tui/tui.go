@@ -90,12 +90,12 @@ type Model struct {
 	mode int
 
 	// 계획 모달 상태
-	plan        *clean.Plan
-	planLines   []clean.PlanLine
-	toggleIdx   []int // planLines 중 확신낮음(토글 가능) 줄 인덱스
-	toggleSel   int   // toggleIdx 내 커서
-	lowOn       map[string]bool
-	needConfirm bool
+	plan         *clean.Plan
+	planLines    []clean.PlanLine
+	toggleIdx    []int // planLines 중 확신낮음(토글 가능) 줄 인덱스
+	toggleSel    int   // toggleIdx 내 커서
+	lowOn        map[string]bool
+	needConfirm  bool
 	buildingVerb string // modeBuilding 동안 표시할 동사("삭제"/"업데이트")
 
 	// 실행/큐/로그
@@ -310,7 +310,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r := m.currentRow(); r.target != "" {
 			m.marked[r.target] = !m.marked[r.target]
 		}
-	case "d", "enter":
+	// enter는 목록에서 의도 없이 눌리기 쉬운데 계획 모달의 승인도 enter다.
+	// 둘 다 enter면 brew/npm 항목은 enter 두 번(y/N 확인 없음)으로 실제 삭제된다 — 그래서 d만 받는다.
+	case "d":
 		if names := m.selectedTargets(); len(names) > 0 {
 			m.mode = modeBuilding
 			m.buildingVerb = "삭제"

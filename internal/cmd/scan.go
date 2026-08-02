@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,6 +31,8 @@ type collectOpts struct {
 	NoOutdated  bool
 	WithRuntime bool
 	Step        func(string)
+	// Progress는 오래 걸리는 단계의 진행률 콜백이다(nil이면 표시하지 않음).
+	Progress func(stage string, done, total int)
 }
 
 // collectInventory는 전체 인벤토리를 수집해 report.Report로 조립한다(scan/tui 공용, 출력은 하지 않음).
@@ -40,7 +43,10 @@ func collectInventory(ctx context.Context, run *iexec.Runner, rec *iexec.Recorde
 	}
 
 	step("전체 소스 병렬 스캔 중")
-	results := source.ScanAll(ctx, source.Default(run, source.Options{WithSize: opt.WithSize}), rec)
+	results := source.ScanAll(ctx, source.Default(run, source.Options{
+		WithSize: opt.WithSize,
+		Progress: opt.Progress,
+	}), rec)
 	sections := buildSections(results)
 
 	if !opt.NoOutdated {
@@ -79,6 +85,36 @@ func collectInventory(ctx context.Context, run *iexec.Runner, rec *iexec.Recorde
 	return rep
 }
 
+// progressPrinter는 진행률을 stderr 한 줄에 덮어써 갱신한다(\r). quiet면 아무것도 하지 않는다.
+// stderr로 보내는 이유: --json의 stdout을 오염시키면 파이프가 깨진다.
+// stderr가 터미널이 아니면(로그 파일 등) 커서 제어가 쓰레기 문자로 남으므로 완료 줄만 남긴다.
+func progressPrinter(quiet bool) func(stage string, done, total int) {
+	if quiet {
+		return nil
+	}
+	tty := isTerminal(os.Stderr)
+	var mu sync.Mutex
+	return func(stage string, done, total int) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case done >= total:
+			if tty {
+				fmt.Fprint(os.Stderr, "\r\033[K")
+			}
+			fmt.Fprintf(os.Stderr, "  … %s %d/%d — 완료\n", stage, done, total)
+		case tty:
+			fmt.Fprintf(os.Stderr, "\r\033[K  … %s %d/%d", stage, done, total)
+		}
+	}
+}
+
+// isTerminal은 f가 터미널인지 본다(커서 제어 문자를 써도 되는지 판단).
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 func newScanCmd() *cobra.Command {
 	var f scanFlags
 	cmd := &cobra.Command{
@@ -110,6 +146,7 @@ func runScan(ctx context.Context, f scanFlags) error {
 				fmt.Fprintf(os.Stderr, "  … %s\n", msg)
 			}
 		},
+		Progress: progressPrinter(f.quiet),
 	})
 
 	data, err := json.MarshalIndent(rep, "", "  ")

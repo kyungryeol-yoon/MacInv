@@ -37,6 +37,7 @@ func runTui(ctx context.Context, noOutdated bool) error {
 		Step: func(msg string) {
 			fmt.Fprintf(os.Stderr, "  … %s\n", msg)
 		},
+		Progress: progressPrinter(false), // TUI 진입 전 스캔도 진행률을 보여준다
 	})
 	// 시작 스캔도 캐시에 반영(scan 커맨드와 동일한 신선도 보장).
 	if err := PersistReport(rep); err != nil {

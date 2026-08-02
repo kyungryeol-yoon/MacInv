@@ -99,4 +99,3 @@ func confirm(r *os.File, want string) bool {
 	}
 	return strings.TrimSpace(sc.Text()) == want
 }
-

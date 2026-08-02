@@ -28,10 +28,10 @@ func TestTotalSizeKB(t *testing.T) {
 
 func TestTopBySize(t *testing.T) {
 	apps := []App{
-		{Name: "Xcode", SizeKB: Ptr(20 * 1024 * 1024)},                          // 20GB 번들, 데이터 없음
+		{Name: "Xcode", SizeKB: Ptr(20 * 1024 * 1024)},                               // 20GB 번들, 데이터 없음
 		{Name: "Notion", SizeKB: Ptr(300 * 1024), DataSizeKB: Ptr(67 * 1024 * 1024)}, // 번들은 작지만 데이터가 67GB
 		{Name: "Calculator", SizeKB: Ptr(5 * 1024)},
-		{Name: "용량미측정"},           // nil → 제외
+		{Name: "용량미측정"},              // nil → 제외
 		{Name: "빈앱", SizeKB: Ptr(0)}, // 0 → 제외
 	}
 	got := TopBySize(apps, 10)
@@ -51,14 +51,14 @@ func TestTopBySize(t *testing.T) {
 }
 
 func TestSizeBreakdown(t *testing.T) {
-	if s := sizeBreakdown(App{SizeKB: Ptr(1024)}); s != "" {
+	if s := SizeBreakdown(App{SizeKB: Ptr(1024)}); s != "" {
 		t.Errorf("데이터 없으면 내역 생략해야 함: %q", s)
 	}
-	if s := sizeBreakdown(App{SizeKB: Ptr(1024), DataSizeKB: Ptr(0)}); s != "" {
+	if s := SizeBreakdown(App{SizeKB: Ptr(1024), DataSizeKB: Ptr(0)}); s != "" {
 		t.Errorf("데이터 0이면 내역 생략해야 함: %q", s)
 	}
-	got := sizeBreakdown(App{SizeKB: Ptr(307200), DataSizeKB: Ptr(70 * 1024 * 1024)})
-	if got != "앱 300 MB + 데이터 70.0 GB" {
+	got := SizeBreakdown(App{SizeKB: Ptr(307200), DataSizeKB: Ptr(70 * 1024 * 1024)})
+	if got != "번들 300 MB + 데이터 70.0 GB" {
 		t.Errorf("sizeBreakdown = %q", got)
 	}
 }

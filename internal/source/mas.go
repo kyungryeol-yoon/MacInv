@@ -15,7 +15,7 @@ type masSource struct {
 	run *iexec.Runner
 }
 
-func (s *masSource) Name() string   { return NameMas }
+func (s *masSource) Name() string    { return NameMas }
 func (s *masSource) Available() bool { _, err := exec.LookPath("mas"); return err == nil }
 
 func (s *masSource) Scan(ctx context.Context) (any, error) {

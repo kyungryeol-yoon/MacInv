@@ -27,19 +27,42 @@ go install .              # ~/go/bin/macinv 로 설치
 
 ## 아키텍처
 
-3-레이어로 스캔/데이터/출력을 분리한다 (TUI를 나중에 bubbletea로 얹기 위한 구조):
+레이어로 스캔/데이터/출력을 분리한다 (TUI를 bubbletea로 얹기 위한 구조). **의존은 항상 아래로만** 흐른다:
 
+```
+cmd → tui → clean ┐
+                  ├→ paths → exec
+       source ────┘     report(순수 데이터)
+```
+
+`go list -deps`로 검증 가능하다. 마일스톤 6-3 이전에는 `source/apps.go`가 `clean`을 import해
+방향이 뒤집혀 있었고(저수준 스캐너 → 고수준 플래너), 경로 매칭 유틸을 `internal/paths`로
+빼면서 해소했다. **경로 판별·매칭 규칙은 전부 paths에 한 벌만 둔다** — source(측정)와
+clean(삭제 계획)이 서로 다른 규칙을 갖게 되는 순간 "보이는 용량"과 "지워지는 것"이 어긋난다.
+
+- **`internal/paths/`** — 경로 매칭·판별 유틸(최하층, exec 외에는 아무것도 import하지 않는다).
+  시스템 경로 블랙리스트(`IsProtected`/`IsAppleSystemApp`), 잔여물 매칭(`LeftoverPaths` ←
+  `bundleGlobs`/`nameGlobs`/`gatherLeftovers`), 측정 전용 경로(`SizePaths`, `vendorAppDirs`,
+  `groupContainersByName`), 벤더 테이블(`data/vendors.json` `go:embed` + `Vendors`/`LookupVendor`/
+  `CountVendorApps`), Bundle ID 유틸(`BundleIDFromPlist`/`DerivedBundleID`/`HasTeamIDPrefix`/
+  `StripHostUUID`), 중복 경로 제거(`DedupContained`). clean은 `PathMatch`/`ConfHigh` 등을
+  **타입 별칭·변수 별칭으로 재노출**해 기존 공개 API(`clean.PathMatch`, `clean.IsProtected` …)를 유지한다.
 - **`internal/source/`** — 스캔 로직. 각 소스(apps/brew/npm/pipx/cargo/mas/gobin/launchd)가 `Source` 인터페이스(`Name() / Available() / Scan(ctx)`)를 구현한다. `source.Default()`가 기본 소스 목록을, `source.ScanAll()`이 `errgroup`으로 **병렬 스캔**해 이름→결과 맵을 돌려준다. 새 소스(gem, mise 등) 추가 = 파일 하나 + `Default()`에 한 줄.
   - **파싱은 exec와 분리**되어 있다. `Scan`은 명령을 실행하고, 순수 파서 함수(`parseBrewInfo`, `parseNpmLs`, `parseMas`, `parseCargoList`, `parseLaunchdJSON`, `applyBrewOutdated`, `applyNpmOutdated` 등)가 바이트/문자열을 받아 report 타입을 돌려준다. 테스트는 이 파서들을 fixture(`internal/source/testdata/`)로 직접 검증한다.
   - `Available()`이 false(명령 미설치 / 디렉토리 없음)면 스캔을 건너뛰고 결과는 nil → JSON `null`. **미설치는 에러가 아니라 조용한 스킵**이다.
 - **`internal/exec/`** — 외부 명령 공통 실행기 `Runner`. 모든 호출에 `context.WithTimeout` 적용. 실패해도 panic하지 않고 `Recorder`에 경고를 모아 리포트 `errors` 필드로 내보낸다. 종료코드가 허용 밖이어도 **stdout이 있으면 성공**으로 본다(프로토타입 규칙, 스캔/읽기 전용). `npm ls`/`npm outdated`처럼 정상 상황에 exit 1을 내는 명령은 `Opt.OKCodes: []int{0,1}`로 허용한다. 실행 파일 자체가 없으면 `ErrNotFound`(경고 없음). **변경 명령(clean/update의 `Execute`·`MoveToTrash`)은 `Opt.Strict`로 엄격 판정** — 부분 실패를 성공으로 오인하지 않는다. 실패 에러 메시지에는 stderr(없으면 stdout) 상세가 포함된다.
 - **`internal/report/`** — JSON 스키마 타입(프로토타입 준수)과 한국어 요약 렌더(`PrintSummary`). null 가능 필드는 포인터(`*string`/`*int`/`*bool`)로 두어 JSON에서 `null`로 나간다. `Ptr`/`PtrOrNil` 헬퍼 사용. **런타임/소유권 데이터 타입(`Runtime`/`Origin`/`VersionManager`)도 여기 있다** — source가 report를 import하므로 순환 없이 source(로직)/tui/cmd가 공유한다(source는 `type Runtime = report.Runtime` 별칭으로 노출).
-- **`internal/clean/`** — 삭제·업데이트·고아 잔여물 플래너. `BuildPlan`/`BuildUpgradePlan`/`BuildOrphansPlan`은 읽기 전용으로 계획만, `Execute`(휴지통 이동/명령 실행)는 cmd가 `--apply`+확인 후에만 호출. 안전 판정은 순수 함수 `IsProtected`/`IsAppleSystemApp`. CLI/TUI가 공유하는 계획 렌더는 `clean.PlanLines`/`RenderPlanText`(`render.go`).
+- **`internal/clean/`** — 삭제·업데이트·고아 잔여물 **플래너**(경로 매칭은 paths에 위임하고 여기선 계획 수립만). `BuildPlan`/`BuildUpgradePlan`/`BuildOrphansPlan`은 읽기 전용으로 계획만, `Execute`(휴지통 이동/명령 실행)는 cmd가 `--apply`+확인 후에만 호출. CLI/TUI가 공유하는 계획 렌더는 `clean.PlanLines`/`RenderPlanText`(`render.go`).
+  - **명령은 `Target.Argv [][]string`**(문자열 아님). 표시용 한 줄은 렌더 시점에 `ShellQuote`가 만든다. 예전에는 `"brew uninstall foo"` 문자열로 저장하고 실행 직전 `strings.Fields`로 다시 쪼갰는데, 그러면 `--filter "until=24h"` 같이 **공백이 든 인자가 깨진다**(disk 커맨드에서 반드시 터질 형태). `ShellQuote`는 표시 전용이라 결과 문자열을 다시 파싱하는 코드는 없어야 한다.
+  - **접두사 과매칭 방어**(`excludeOtherAppIDs`/`ownerOfID`, clean.go): `bundleGlobs`가 접두사 매칭이라 `com.google.Chrome` 계획에 `com.google.Chrome.canary`가 [확실]로 딸려 들어온다. 경로에서 뽑은 파생 ID(`paths.DerivedBundleID`)가 **설치된 다른 앱의 Bundle ID에 귀속**되면 계획에서 빼고 `Target.Excluded`에 "타 앱(<이름>) 소유 — 보존"을 남긴다. 귀속 판정은 **가장 긴 ID가 이긴다** — Chrome/Chrome.canary가 둘 다 설치된 상태에서 canary를 지울 때 canary 파생물이 Chrome 소유로 오판되면 안 된다. `com.google.Chrome.helper`처럼 **어느 앱도 소유하지 않는 파생물은 그대로 남긴다**(이 둘을 구분하는 게 핵심). 비싼 `installedAppList`(앱마다 mdls)는 `sync.OnceValue` + "검사할 파생 ID가 있을 때만" 게이트로 호출한다.
+  - **권한 사전 확인**(`permission.go`): `bundleGlobs`는 `/Library/...`도 [확실]로 잡지만 대부분 root 소유라 휴지통 이동이 실패하고 로그에 ✗만 남는다. 계획 단계에서 **부모 디렉토리 쓰기 권한**(`syscall.Access`)을 보고 `Target.NeedsAdmin`으로 분리해 "🔑 권한 필요(수동)"로 표시하고 TrashPaths·회수 예상에서 뺀다. 실기 확인: `logioptionsplus`의 `/Library/LaunchDaemons/...`, `LogiPluginService.app`(부모 `/Applications/Utilities`가 root:wheel).
+  - **회수 예상**(`reclaim.go`): `MeasureTrashSizes`가 계획에 담긴 경로만 `du -sk` 한 번으로 재고(`DedupContained`로 부모/자식 합쳐 이중 계산 방지 — 부모에만 값이 실린다), `ReclaimLine`이 하단 요약 줄을 만든다. 앱 목록의 표시 용량과 **다른 값인 게 정상**이다(아래 6-5 참고).
 - **`internal/tui/`** — bubbletea 대화형 뷰(`tui.go` 상태/흐름, `view.go` 렌더/탭). 탭: 앱/brew/**패키지(npm·pipx·cargo·go)**/런타임/업데이트/launchd.
   - **앱 탭 정렬 토글**: `s`로 이름순↔용량순(번들+데이터 합계) 전환. 상태는 `Model.sortBySize`, 정렬은 순수 함수 `sortAppsBySize`(원본 `rep.Sections.Apps`를 건드리지 않고 **사본**을 정렬 — 다른 탭/커맨드가 공유한다). 용량 미측정 앱은 뒤로 보내고 그들끼리는 이름순 유지. 토글 시 `buildTabs` 재호출 + `sel/top` 초기화(행 순서가 통째로 바뀌므로). `marked`는 행 인덱스가 아니라 **target 이름 기준**이라 정렬해도 선택이 유지된다. 푸터 힌트는 용량을 표시하는 앱 탭에서만 노출.
+  - **`enter`는 browse 모드에서 아무 일도 하지 않는다**(삭제는 `d`, 업데이트는 `u`만). 계획 모달의 승인도 enter라, 목록에서 enter가 삭제를 시작하면 brew/npm 항목(y/N 재확인 없음)은 **enter 두 번으로 실제 삭제**된다. 테스트로 고정(`TestEnterDoesNotStartDeleteInBrowse`).
   - **실행 가능**: `space` 멀티선택 → `d`(삭제) 또는 `u`(업데이트) → **계획 모달**(CLI와 **동일한 `clean.PlanLines`/`RenderPlanText` 공유**) → `[확신낮음]`은 체크박스 기본 해제(`space` 토글) → GUI 앱은 `y/N` 추가 확인, brew/npm 등은 승인 즉시 → `clean.Execute`를 goroutine에서 실행, 각 줄을 `chan tea.Msg`→`waitEvent` 루프로 **하단 로그 패널에 실시간 스트리밍**(UI 비블로킹), **동시 1개만 큐잉**. 완료 후 `RescanFunc`(cmd가 `RescanSources`로 주입)로 **영향 소스만 부분 재스캔**해 목록 갱신 + `PersistFunc`(cmd의 `PersistReport`)로 `~/.macinv/inventory.json` 캐시도 동기화. `r`=전체 재스캔, `esc`=대기 큐 취소(실행 중 외부 명령은 강제 종료 못 함). 잡 완료 시 실패 건수 요약(`jobDoneMsg.failed`)을 로그에 남긴다. 안전 규칙은 전부 `clean` 재사용. 모드(browse/building/plan/confirm)와 계획 생성/실행은 `tea.Cmd`로 비동기. TTY 없이 모델 전이·네비게이션·삭제/업데이트 프롬프트를 테스트한다.
   - **탭 라벨 카운트**(`tab.count`)는 `len(tab.rows)`와 **다르다** — rows에는 "(없음)"/"✅ 최신 상태" 같은 안내 플레이스홀더 행이 섞여 있어, 헤더 숫자는 `buildTabs`에서 실제 데이터 길이(`brewCount`/`packageCount`/`installedRuntimeCount`/`len(outdated)` 등)로 **별도 계산**한다. 스크롤/선택 clamp는 여전히 `len(rows)` 사용(플레이스홀더도 화면엔 한 줄 차지하므로). 새 탭 추가 시 이 둘을 혼동하지 말 것 — 실제로 업데이트가 0개인데 "업데이트 (1)"로 뜨던 버그가 이 혼동에서 나왔다.
-- **`internal/cmd/`** — cobra 커맨드(출력 레이어). 스캔 수집은 `collectInventory`(scan/tui 공용)로 모았다: `buildSections` 조립 + `--no-outdated`가 아니면 `EnrichBrew`/`EnrichNpm` 보강 + `--no-runtimes`가 아니면 `ScanRuntimes`/`ScanVersionManagers`. 결과는 `report.Report`(runtimes/version_managers는 `omitempty`). outdated 수집은 `collectOutdatedRows`로 `outdated`/`update --all`이 공유.
+- **`internal/cmd/`** — cobra 커맨드(출력 레이어). 진행률은 `progressPrinter`(`scan.go`)가 stderr에 `\r`로 한 줄을 덮어써 갱신한다(`source.Options.Progress` → `appsSource`가 앱 하나 끝날 때마다 호출). stdout이 아니라 stderr인 이유는 `--json` 파이프를 오염시키지 않기 위해서고, `--quiet`면 콜백 자체가 nil, stderr가 TTY가 아니면 완료 줄만 남긴다. 스캔 수집은 `collectInventory`(scan/tui 공용)로 모았다: `buildSections` 조립 + `--no-outdated`가 아니면 `EnrichBrew`/`EnrichNpm` 보강 + `--no-runtimes`가 아니면 `ScanRuntimes`/`ScanVersionManagers`. 결과는 `report.Report`(runtimes/version_managers는 `omitempty`). outdated 수집은 `collectOutdatedRows`로 `outdated`/`update --all`이 공유.
 
 ### 알려진 주의점
 - **mdls swap 버그**: 프로토타입은 `mdls -raw`에 여러 `-name`을 한 번에 넘겨 반환 순서가 뒤바뀌어 앱의 `version`/`date_added`가 서로 바뀌어 저장됐다. Go판은 mdls를 앱당 1회만 호출하고 **"키 = 값" 형식을 키 기반으로 파싱**(`parseMdlsKeyed`)해 이 버그와 구조적으로 무관하게 만들었다. 프로토타입 JSON과 diff 시 이 두 필드 값이 다른 것은 정상.
@@ -59,12 +82,28 @@ go install .              # ~/go/bin/macinv 로 설치
    - **패키지 매니저 항목**(`packages.go`): query가 npm 전역/pipx/cargo 패키지거나 `~/go/bin` 실행 파일이면 네이티브 uninstall 명령(`npm uninstall -g`, `pipx uninstall`, `cargo uninstall`) 또는 바이너리 휴지통 이동을 타깃으로 추가.
    - **벤더 폴더 처리**(`vendor.go` + `data/vendors.json` `go:embed`): Google/Microsoft/Adobe/JetBrains 등 벤더 폴더를 만나면 **인벤토리(설치된 앱 Bundle ID)를 참조**해 같은 벤더 다른 앱이 있는지 본다. 있으면 `<Vendor>/<App>` 하위만 `[확신낮음]`으로 추가하고 공유 컴포넌트(Keystone 등)는 `Target.Excluded`에 "타 앱 사용 중" 사유로 보존 표기; 이 벤더 앱이 이것뿐이면 벤더 폴더 전체 + 고아 공유 컴포넌트를 `[확신중간]`으로. 새 벤더 케이스는 **코드 수정 없이 `data/vendors.json`에 추가**. `coveredByExisting`으로 부모 폴더에 중첩된 중복 경로는 제거. brew formula/cask는 네이티브 uninstall 명령 + 역의존성(`brew uses --installed`) 경고 + autoremove 제안, GUI 앱은 Bundle ID 정확 일치 잔여물(높은 확신) + 이름 기반(낮은 확신) 구분. 이름 매칭은 **정확 일치 우선**(`matchApps` 순수 함수) — 정확 일치가 없을 때만 부분일치를 쓰고 타깃에 "이름 부분일치" 경고를 붙인다. 순수 함수 `IsProtected`(시스템 경로 블랙리스트)와 `IsAppleSystemApp`(`com.apple.*` — Safari처럼 /Applications에 있는 애플 앱 보호)로 안전 강제, `MoveToTrash`는 실행 직전 `IsProtected` 재확인. **아래 안전 규칙 필수 준수.**
 
+6. **안전성·구조 정비** ✅ — disk 기능을 얹기 전에 바닥을 고쳤다. 상세는 각 항목이 서술된 곳(아키텍처 / clean 안전 규칙 / TUI)에 통합했고, 여기서는 **무엇을 왜 고쳤는지**만 남긴다.
+   - **6-1 Bundle ID 접두사 과매칭** [데이터 손실 가능] — `com.google.Chrome` 삭제 계획이 `com.google.Chrome.canary` 경로를 [확실]로 삼켰다. → `excludeOtherAppIDs`.
+   - **6-2 glob 메타문자** — 이름에 `[`/`*`/`?`가 든 앱이 무관한 경로를 매칭했다. → 이름 경로는 리터럴 확인.
+   - **6-3 레이어 역전** — `source/apps.go`가 `clean`을 import했다. → `internal/paths` 추출. 리팩터 전후 `scan --json`(용량/시각 제외)·`clean` dry-run 13건·`orphans` 출력이 **완전히 동일**함을 diff로 검증했다.
+   - **6-4 du 이중 계산** — 부모/자식이 함께 `du`에 넘어가면 자식이 두 번 세졌다(부모가 나중에 추가되는 방향만 방어가 없었다). → `paths.DedupContained`(양방향 + 부모 추가 시 기존 자식 제거).
+   - **6-5 표시 용량 ≠ 회수 가능량** — 아래 별도 항목.
+   - **6-6 scan 진행률** — `dataKB`가 앱당 300초 타임아웃이라 멈춘 것처럼 보였다. → stderr 진행률.
+   - **6-7 TUI `enter` 분리** — 목록 enter + 모달 enter = 두 번에 실제 삭제. → `d`/`u`만.
+   - **6-8 `Target.Argv`** — 명령 문자열을 실행 직전 `strings.Fields`로 재분해해 공백 인자가 깨졌다.
+   - **6-9 osascript argv 전달** — `%q` 이스케이프가 AppleScript와 어긋났다.
+   - **6-10 권한 사전 확인** — `/Library` 대상은 실패가 예정돼 있었다. → `NeedsAdmin` 분리.
+
 ## clean 안전 규칙 (모든 삭제/정리 커맨드에 적용)
 
 - **기본은 dry-run**: 삭제 계획(파일 목록 + 사용할 명령)만 출력. 실제 삭제는 `--apply` + 대화형 확인 필요.
 - **rm 금지, 휴지통 이동**: `/usr/bin/trash`(있으면) 또는 `osascript`로 Finder에게 삭제 위임. 사용 가능 여부를 먼저 확인.
+  - osascript 폴백은 경로를 **argv로 넘긴다**(`-e 'on run argv'` … `-e 'end run'` … `-- <path>`). 스크립트 본문에 `fmt.Sprintf`+`%q`로 끼워 넣으면 Go 이스케이프 규칙(한글이 `\uXXXX`로 나감)이 AppleScript와 어긋난다. **주의**: `POSIX file <변수>`는 리터럴과 달리 `as alias` 강제 변환이 없으면 Finder가 -1728로 실패한다(실측).
+- **권한 없는 경로는 계획에서 분리**: 부모 디렉토리에 쓰기 권한이 없으면 삭제하지 말고 "권한 필요 — 수동 처리"로 표시. 실패할 걸 알면서 시도해 ✗ 로그만 남기지 않는다.
 - **시스템 경로 하드코딩 블랙리스트**: `/System`, `/usr`, `/bin`, `/sbin`, `/Library/Apple`은 절대 접근 금지.
 - **잔여 파일 매칭은 Bundle ID 정확 일치 우선**: `mdfind kMDItemCFBundleIdentifier` 기반. 이름 유사도 기반 매칭 결과는 "확신 낮음"으로 별도 표시.
+- **접두사 glob이 다른 앱을 삼키지 않게 한다**: `<bundleID>*` 매칭 결과 중 파생 ID가 다른 설치 앱의 Bundle ID에 귀속되면 제외(위 `excludeOtherAppIDs`). [확실]은 `--apply` 기본 삭제 대상이라 여기 말고는 방어선이 없다.
+- **앱 이름은 glob 패턴이 아니다**: 이름 기반 경로는 `filepath.Glob`이 아니라 **리터럴 존재 확인**으로 찾는다. 이름에 `[`/`*`/`?`가 있으면 문자 클래스·와일드카드로 해석돼 무관한 경로를 삼킨다(`"Foo [beta]"` → `~/Library/Caches/Foo b`). 패턴에 끼워 넣는 가변 부분(Bundle ID)은 `escapeGlobMeta`로 이스케이프한다.
 - **brew 삭제**: `brew uses --installed`로 역의존성 확인 후 경고, 삭제 후 `brew autoremove` 제안.
 
 ## 마일스톤 이후 추가 기능 및 개선
@@ -79,11 +118,17 @@ go install .              # ~/go/bin/macinv 로 설치
 
 **앱 용량 = 번들 + 데이터(2026-08-02)**: 예전엔 `du -sk`를 `.app` 번들에만 걸어 "용량 큰 앱 Top 10"이 **설치 파일 크기 랭킹**이었다. Electron 앱은 번들 283MB인데 캐시가 67GB인 식이라 실제 디스크 점유가 전혀 안 보였다. 이제 `appsSource.dataKB`(`apps.go`)가 `clean.SizePaths`로 앱 데이터 경로를 모아 **`du -sk`에 한 번에 넘겨**(앱당 프로세스 1회) 잰다 → `report.App.DataSizeKB`(`data_size_kb,omitempty`), 정렬/표시는 `App.TotalSizeKB()`(번들+데이터). 요약은 `report.TopBySize`(순수 함수)로 뽑고 내역("앱 283 MB + 데이터 67.2 GB")을 함께 보여준다. TUI 앱 탭 용량 칸도 합계.
 - **`clean.SizePaths`(`clean/size.go`)는 측정 전용이며 삭제에 쓰지 않는다.** `LeftoverPaths`(=삭제 계획과 동일한 규칙)에 두 가지를 더한다: ① 벤더 폴더 내 앱 하위 폴더(Chrome 데이터는 `Application Support/Google/Chrome` — Bundle ID로도 앱 이름으로도 안 잡힘, 공유 컴포넌트는 제외) ② 그룹 컨테이너 이름 매칭(`groupContainerMatchesApp` — 팀ID 접두사를 떼고 **마지막 마디만 정확 비교**; OrbStack은 Bundle ID가 `dev.kdrag0n.MacVirt`라 `HUAQ24HBR6.dev.orbstack` 24GB를 ID로는 영영 못 찾는다). 부분일치를 안 쓰는 이유는 "Mail"/"Home" 같은 짧은 이름이 무관한 컨테이너를 쓸어담기 때문 — **완화 금지**. 이미 잡힌 경로의 하위 경로는 중복 계산에서 제외한다.
-- **비용**: 데이터 `du`가 스캔에서 가장 무겁다(이 맥 실측 0.9s → 9.4s, 대부분 수십 GB 캐시 트리 walk). 급하면 `--no-sizes`.
+- **비용**: 데이터 `du`가 스캔에서 가장 무겁다(이 맥 실측 0.9s → 9.4s, 대부분 수십 GB 캐시 트리 walk). 급하면 `--no-sizes`. 진행률은 stderr에 표시된다(6-6).
+
+**표시 용량 ≠ 회수 가능량(2026-08-02, 6-5)**: 앱 목록의 용량은 `paths.SizePaths`(측정용 **넓은** 규칙 — 벤더 폴더 포함)로 재는데, 삭제 계획은 벤더 공유 여부를 따로 판정해 그 경로를 보존할 수 있다. 즉 "Chrome 10.9 GB"를 보고 지웠는데 2 GB만 비는 상황이 **정상**이다. 예전엔 이 간극이 코드 주석에만 있었다. 이제 UI에 드러낸다:
+- 용량 표시는 합계 옆에 **내역**을 붙인다(`번들 2.0 GB + 데이터 8.8 GB`). 순수 함수 `report.SizeBreakdown` — CLI 요약(Top 10)과 TUI 앱 탭이 공유. 번들은 앱을 지워야 줄고, 데이터는 clean으로 줄일 여지가 있다는 신호다.
+- 계획 하단에는 **계획에 실제로 담긴 TrashPaths만** 합산한 `💾 이번 삭제로 회수 예상: N GB`를 따로 낸다(`clean.ReclaimLine`). [확신낮음] 제외가 기본(= `--apply` 기본값)이고, 모두 포함했을 때의 상한을 괄호로 같이 보여준다. TUI 모달은 체크박스 토글 상태로 **즉시 다시 계산**한다. `NeedsAdmin`(권한 필요) 경로는 회수량에 넣지 않는다 — 어차피 안 지워진다.
 
 **성능 최적화(2026-07-20)**: ① 앱 스캔의 mdls를 앱당 3회→1회(`parseMdlsKeyed`, 위 "알려진 주의점"에도 서술). ② `BuildUpgradePlan`(4개 프로브)·`BuildPlan`(brew 2개)·`appendPackageTargets`(3개) 프로브를 병렬화 — TUI 모달 대기 절반 이하. ③ 벤더 판단용 `installedAppBundleIDs`는 `sync.OnceValue`로 지연(벤더 매칭 시에만) + 내부 mdls 병렬(worker 8). 측정: scan 2.7s→2.0s, update 계획 1.45s→0.65s, 출력 동일 검증.
 
 ## 테스트 관례
 - 파싱 로직마다 테이블 기반 유닛 테스트. 실제 명령 출력 샘플을 `internal/source/testdata/`에 fixture로 저장하고, 파서 함수에 직접 주입해 검증(exec 미실행).
 - 새 소스/커맨드 추가 시 프로토타입 JSON과 구조적으로 diff해 누락 필드가 없는지 확인하는 습관을 유지한다(M1에서 검증한 방식).
-- `internal/clean`의 안전 판정(`IsProtected`, `classifyOrphan`, `matchApps` 등)은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. 실기에서 오탐/오탐지가 나오면 반드시 회귀 테스트로 고정한다(orphans의 `orphanProtected`가 그 예).
+- 안전 판정은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. `paths`: `IsProtected`/`IsAppleSystemApp`/`bundleGlobs`/`nameGlobs`/`DerivedBundleID`/`DedupContained`/`groupContainerMatchesApp`/`LookupVendor`. `clean`: `classifyOrphan`/`matchApps`/`excludeOtherAppIDs`/`ownerOfID`/`splitByWritability`/`ShellQuote`/`ReclaimKB`/`parseDuSizes`. 파일시스템이 필요한 것(`gatherLeftovers`, `SizePaths`, `MeasureTrashSizes`)은 `t.TempDir()`에 실제 파일을 만들어 검증한다.
+- 실기에서 오탐/오탐지가 나오면 반드시 회귀 테스트로 고정한다(orphans의 `orphanProtected`, 6-1의 `TestLeftoversDoNotSwallowOtherApp`, 6-4의 `TestDedupContained`가 그 예).
+- **리팩터링은 출력 diff로 검증한다**: 동작이 바뀌면 안 되는 변경(6-3 같은 레이어 이동)은 리팩터 전 바이너리를 `git worktree`로 빌드해 두고 `scan --json`/`clean` dry-run/`orphans` 출력을 diff한다. 용량(`size_kb`/`data_size_kb`)과 `generated_at`은 실행마다 달라지므로 비교에서 뺀다.

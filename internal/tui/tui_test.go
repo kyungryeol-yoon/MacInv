@@ -155,7 +155,7 @@ func TestUpgradeKeyStartsBuilding(t *testing.T) {
 func TestUpgradeModalNoTrashWarning(t *testing.T) {
 	m := newTestModel()
 	up := &clean.Plan{Query: "git", Verb: "업데이트", Icon: "⬆️", Targets: []clean.Target{{
-		Kind: clean.KindBrewFormula, Name: "git", Commands: []string{"brew upgrade git"},
+		Kind: clean.KindBrewFormula, Name: "git", Argv: [][]string{{"brew", "upgrade", "git"}},
 	}}}
 	updated, _ := m.Update(planMsg{plan: up})
 	m = updated.(Model)
@@ -250,7 +250,7 @@ func TestStreamingLog(t *testing.T) {
 // 큐: 실행 중이면 다음 잡은 큐에 남고 동시 1개만.
 func TestQueueSingleFlight(t *testing.T) {
 	m := newTestModel()
-	m.plan = &clean.Plan{Query: "a", Targets: []clean.Target{{Kind: clean.KindBrewFormula, Name: "a", Commands: []string{"brew uninstall a"}}}}
+	m.plan = &clean.Plan{Query: "a", Targets: []clean.Target{{Kind: clean.KindBrewFormula, Name: "a", Argv: [][]string{{"brew", "uninstall", "a"}}}}}
 	m.lowOn = map[string]bool{}
 	m.running = true // 이미 실행 중이라고 가정
 	m.enqueueAndMaybeStart()
@@ -433,5 +433,29 @@ func TestSortHintOnlyOnAppTab(t *testing.T) {
 	m = updated.(Model)
 	if strings.Contains(m.View(), "s 정렬") {
 		t.Error("앱 탭이 아닌데 정렬 힌트가 표시됨")
+	}
+}
+
+// browse 모드에서 enter는 아무 일도 하지 않아야 한다.
+// 계획 모달의 승인도 enter라, 목록에서 enter가 삭제를 시작하면
+// brew/npm 항목(y/N 재확인 없음)은 enter 두 번으로 실제 삭제된다.
+func TestEnterDoesNotStartDeleteInBrowse(t *testing.T) {
+	m := newTestModel()
+	if m.currentRow().target == "" {
+		t.Fatalf("첫 행에 target이 없어 테스트 무의미: %q", m.currentRow().text)
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.mode != modeBrowse {
+		t.Errorf("enter 후 mode=%d, want modeBrowse (삭제 계획이 시작되면 안 됨)", m.mode)
+	}
+	if cmd != nil {
+		t.Errorf("enter가 계획 작성 커맨드를 만들었음")
+	}
+	// d는 여전히 삭제 계획을 시작한다.
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	m = updated.(Model)
+	if m.mode != modeBuilding || cmd == nil {
+		t.Errorf("d 후 mode=%d cmd=%v, want modeBuilding + 커맨드", m.mode, cmd != nil)
 	}
 }

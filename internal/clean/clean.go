@@ -13,13 +13,35 @@ import (
 	"sync"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/macinv/internal/paths"
+)
+
+// 경로 판별·매칭은 저수준 paths 패키지가 담당한다(source도 같은 것을 쓴다).
+// 여기서는 별칭으로 노출해 clean의 공개 API(clean.PathMatch/ConfHigh …)를 유지한다.
+type (
+	// PathMatch는 삭제 후보 경로 하나와 그 확신 수준이다.
+	PathMatch = paths.PathMatch
 )
 
 // 확신 수준.
 const (
-	ConfHigh   = "high"   // Bundle ID 정확 일치
-	ConfMedium = "medium" // 벤더 폴더 전체(그 벤더 앱이 이것뿐일 때)
-	ConfLow    = "low"    // 이름/벤더 하위 폴더 기반 추정
+	ConfHigh   = paths.ConfHigh   // Bundle ID 정확 일치
+	ConfMedium = paths.ConfMedium // 벤더 폴더 전체(그 벤더 앱이 이것뿐일 때)
+	ConfLow    = paths.ConfLow    // 이름/벤더 하위 폴더 기반 추정
+)
+
+// 안전 판정·경로 조회는 paths의 것을 그대로 쓴다(규칙이 두 벌이 되면 안 된다).
+var (
+	// IsProtected는 경로가 시스템 블랙리스트에 속하는지 판별한다.
+	IsProtected = paths.IsProtected
+	// IsAppleSystemApp은 Bundle ID로 애플 기본 앱을 판별한다.
+	IsAppleSystemApp = paths.IsAppleSystemApp
+	// BundleIDFromPlist는 Info.plist에서 CFBundleIdentifier를 직접 읽는다(mdls 폴백).
+	BundleIDFromPlist = paths.BundleIDFromPlist
+	// LeftoverPaths는 앱이 남긴 데이터 경로다(삭제 계획과 동일한 매칭 규칙).
+	LeftoverPaths = paths.LeftoverPaths
+	// SizePaths는 용량 측정 전용 경로다(삭제에는 쓰지 않는다).
+	SizePaths = paths.SizePaths
 )
 
 // 타깃 종류.
@@ -53,22 +75,19 @@ func (p *Plan) icon() string {
 
 // Target은 삭제 대상 하나(앱/포뮬러/캐스크)와 그 부속물이다.
 type Target struct {
-	Kind          string
-	Name          string
-	BundleID      string
-	Commands      []string    // 실행할 네이티브 삭제 명령(brew 등)
-	CmdTimeoutSec int         // Commands 실행 타임아웃(0이면 기본 300초). 대형 다운로드가 있는 업그레이드만 상향.
+	Kind     string
+	Name     string
+	BundleID string
+	// Argv는 실행할 네이티브 명령들이다. 문자열이 아니라 인자 배열로 담는다 —
+	// 문자열로 두면 실행 직전에 공백으로 다시 쪼개야 해서 공백이 든 인자가 깨진다.
+	// 표시용 한 줄은 ShellQuote가 렌더 시점에 만든다.
+	Argv          [][]string
+	CmdTimeoutSec int         // Argv 실행 타임아웃(0이면 기본 300초). 대형 다운로드가 있는 업그레이드만 상향.
 	TrashPaths    []PathMatch // 휴지통으로 옮길 경로
+	NeedsAdmin    []PathMatch // 쓰기 권한이 없어 자동 삭제하지 않는 경로(수동 처리 안내)
 	Excluded      []Exclusion // 일부러 제외한 경로(공유 컴포넌트 등) + 사유
 	Warnings      []string
 	Suggestions   []string
-}
-
-// PathMatch는 삭제 후보 경로 하나와 그 확신 수준이다.
-type PathMatch struct {
-	Path       string
-	Confidence string
-	Reason     string
 }
 
 // Exclusion은 계획에서 일부러 제외한 경로와 그 사유다(예: 타 벤더 앱이 공유 중).
@@ -80,7 +99,7 @@ type Exclusion struct {
 // HasContent는 계획에 실제로 할 일이 있는지 여부다.
 func (p *Plan) HasContent() bool {
 	for _, t := range p.Targets {
-		if len(t.Commands) > 0 || len(t.TrashPaths) > 0 {
+		if len(t.Argv) > 0 || len(t.TrashPaths) > 0 {
 			return true
 		}
 	}
@@ -132,107 +151,78 @@ func BuildCombinedPlan(ctx context.Context, run *iexec.Runner, names []string) *
 	return combined
 }
 
-// protectedPrefixes는 절대 접근 금지 경로다(하드코딩 블랙리스트).
-var protectedPrefixes = []string{
-	"/System",
-	"/usr",
-	"/bin",
-	"/sbin",
-	"/Library/Apple",
+// ---- 접두사 과매칭 방어 (다른 앱 소유 경로 보존) ---------------------------
+//
+// bundleGlobs는 접두사 매칭이라 com.google.Chrome 계획에 com.google.Chrome.canary가
+// [확실]로 딸려 들어온다. [확실]은 --apply 기본 삭제 대상이라 방어선이 없으므로,
+// 경로에서 뽑은 파생 ID가 **설치된 다른 앱의 Bundle ID에 귀속**되면 계획에서 뺀다.
+// 반대로 com.google.Chrome.helper처럼 어느 앱도 소유하지 않는 파생물은 그대로 남긴다.
+
+// installedApp은 설치된 앱의 Bundle ID와 표시 이름이다.
+type installedApp struct {
+	ID   string
+	Name string
 }
 
-// IsProtected는 경로가 시스템 블랙리스트에 속하는지 판별한다(순수 함수 — 테스트 대상).
-// 삭제 계획에 넣기 전에 반드시 통과해야 한다.
-func IsProtected(path string) bool {
-	clean := filepath.Clean(path)
-	for _, p := range protectedPrefixes {
-		if clean == p || strings.HasPrefix(clean, p+"/") {
-			return true
+// ownerOfID는 파생 ID를 소유하는 설치 앱을 찾는다(가장 긴 = 가장 구체적인 ID가 이긴다).
+// 가장 긴 것을 고르는 이유: Chrome과 Chrome.canary가 둘 다 설치된 상태에서 canary를 지울 때
+// canary 파생물이 Chrome 소유로 오판되면 안 되기 때문이다.
+func ownerOfID(candidate string, installed []installedApp) (installedApp, bool) {
+	var best installedApp
+	for _, a := range installed {
+		if a.ID == "" {
+			continue
 		}
-	}
-	return false
-}
-
-// IsAppleSystemApp은 Bundle ID로 애플 기본 앱을 판별한다(순수 함수 — 테스트 대상).
-// Safari처럼 /Applications에 있어 경로 블랙리스트에 안 걸리는 시스템 앱을 보호한다.
-func IsAppleSystemApp(bundleID string) bool {
-	return strings.HasPrefix(bundleID, "com.apple.")
-}
-
-// LeftoverPaths는 앱이 ~/Library 등지에 남긴 데이터 경로를 돌려준다(읽기 전용).
-// 삭제 계획과 같은 매칭 규칙을 쓰므로, scan의 용량 집계가 "clean이 지울 대상"과 일치한다.
-func LeftoverPaths(home, bundleID, appName string) []PathMatch {
-	return gatherLeftovers(home, bundleID, appName)
-}
-
-// globSpec은 잔여물 후보를 찾는 glob 패턴 하나다(존재 확인 전).
-type globSpec struct {
-	pattern    string
-	confidence string
-	reason     string
-}
-
-// bundleGlobs는 Bundle ID로 잔여물 glob 패턴을 만든다(순수 함수 — 테스트 대상).
-// 접두사 매칭(<B>*)이라 헬퍼/파생 파일(com.vendor.app.helper.plist 등)까지 잡는다. 모두 높은 확신.
-func bundleGlobs(home, bundleID string) []globSpec {
-	if bundleID == "" {
-		return nil
-	}
-	lib := filepath.Join(home, "Library")
-	p := func(base, sub, suffix string) string { return filepath.Join(base, sub, bundleID+suffix) }
-	return []globSpec{
-		{p(lib, "Preferences", "*.plist"), ConfHigh, "환경설정 (Bundle ID)"},
-		{p(lib, "Preferences/ByHost", "*.plist"), ConfHigh, "환경설정 ByHost (Bundle ID)"},
-		{p(lib, "Caches", "*"), ConfHigh, "캐시 (Bundle ID)"},
-		{p(lib, "HTTPStorages", "*"), ConfHigh, "HTTP 저장소 (Bundle ID)"},
-		{p(lib, "WebKit", "*"), ConfHigh, "WebKit 데이터 (Bundle ID)"},
-		{p(lib, "Containers", "*"), ConfHigh, "샌드박스 컨테이너 (Bundle ID)"},
-		{p(lib, "Application Scripts", "*"), ConfHigh, "앱 스크립트 (Bundle ID)"},
-		{p(lib, "Saved Application State", "*.savedState"), ConfHigh, "저장된 상태 (Bundle ID)"},
-		{p(lib, "Application Support", "*"), ConfHigh, "앱 지원 데이터 (Bundle ID)"},
-		{p(lib, "Logs", "*"), ConfHigh, "로그 (Bundle ID)"},
-		{p(lib, "Cookies", "*.binarycookies"), ConfHigh, "쿠키 (Bundle ID)"},
-		{p(lib, "LaunchAgents", "*.plist"), ConfHigh, "LaunchAgent (Bundle ID)"},
-		{filepath.Join(lib, "Group Containers", "*"+bundleID+"*"), ConfHigh, "그룹 컨테이너 (Bundle ID)"},
-		// 시스템 전역(/Library) — 삭제에 관리자 권한이 필요할 수 있음.
-		{filepath.Join("/Library", "Application Support", bundleID+"*"), ConfHigh, "앱 지원 (시스템 · 권한 필요할 수 있음)"},
-		{filepath.Join("/Library", "Caches", bundleID+"*"), ConfHigh, "캐시 (시스템)"},
-		{filepath.Join("/Library", "Preferences", bundleID+"*.plist"), ConfHigh, "환경설정 (시스템)"},
-		{filepath.Join("/Library", "LaunchAgents", bundleID+"*.plist"), ConfHigh, "LaunchAgent (시스템)"},
-		{filepath.Join("/Library", "LaunchDaemons", bundleID+"*.plist"), ConfHigh, "LaunchDaemon (시스템)"},
-	}
-}
-
-// nameGlobs는 앱 이름 기반 잔여물 패턴을 만든다(순수 함수 — 테스트 대상). 낮은 확신.
-func nameGlobs(home, appName string) []globSpec {
-	if appName == "" {
-		return nil
-	}
-	lib := filepath.Join(home, "Library")
-	return []globSpec{
-		{filepath.Join(lib, "Application Support", appName), ConfLow, "앱 지원 데이터 (이름 기반 · 확신 낮음)"},
-		{filepath.Join(lib, "Caches", appName), ConfLow, "캐시 (이름 기반 · 확신 낮음)"},
-		{filepath.Join(lib, "Logs", appName), ConfLow, "로그 (이름 기반 · 확신 낮음)"},
-	}
-}
-
-// gatherLeftovers는 glob 패턴을 실제로 펼쳐 존재하고 블랙리스트가 아닌 경로만 돌려준다.
-// bundle 패턴을 먼저 처리해, 같은 경로가 이름 패턴과 겹치면 높은 확신이 이긴다.
-func gatherLeftovers(home, bundleID, appName string) []PathMatch {
-	specs := append(bundleGlobs(home, bundleID), nameGlobs(home, appName)...)
-	seen := map[string]bool{}
-	var out []PathMatch
-	for _, s := range specs {
-		matches, _ := filepath.Glob(s.pattern)
-		for _, m := range matches {
-			if seen[m] || IsProtected(m) {
-				continue
+		if candidate == a.ID || strings.HasPrefix(candidate, a.ID+".") {
+			if len(a.ID) > len(best.ID) {
+				best = a
 			}
-			seen[m] = true
-			out = append(out, PathMatch{Path: m, Confidence: s.confidence, Reason: s.reason})
 		}
 	}
-	return out
+	return best, best.ID != ""
+}
+
+// excludeOtherAppIDs는 다른 설치 앱이 소유하는 경로를 계획에서 빼고 보존 사유를 만든다
+// (순수 함수 — 테이블 테스트 대상).
+func excludeOtherAppIDs(matches []PathMatch, selfID string, installed []installedApp) (kept []PathMatch, excluded []Exclusion) {
+	if selfID == "" {
+		return matches, nil
+	}
+	for _, m := range matches {
+		cand := paths.DerivedBundleID(m.Path)
+		if owner, ok := ownerOfID(cand, installed); ok && owner.ID != selfID {
+			name := owner.Name
+			if name == "" {
+				name = owner.ID
+			}
+			excluded = append(excluded, Exclusion{
+				Path:   m.Path,
+				Reason: "타 앱(" + name + ") 소유 — 보존",
+			})
+			continue
+		}
+		kept = append(kept, m)
+	}
+	return kept, excluded
+}
+
+// filterOtherAppOwned는 excludeOtherAppIDs를 적용하되, 검사할 파생 ID가 하나도 없으면
+// 설치 목록 조회(앱마다 mdls — 비쌈)를 아예 하지 않는다.
+func filterOtherAppOwned(matches []PathMatch, selfID string, installed func() []installedApp) ([]PathMatch, []Exclusion) {
+	if selfID == "" || installed == nil {
+		return matches, nil
+	}
+	need := false
+	for _, m := range matches {
+		if id := paths.DerivedBundleID(m.Path); id != "" && id != selfID {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return matches, nil
+	}
+	return excludeOtherAppIDs(matches, selfID, installed())
 }
 
 // BuildPlan은 query에 해당하는 삭제 계획을 만든다(읽기 전용 — 아무것도 삭제하지 않는다).
@@ -242,7 +232,7 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 
 	// 독립적인 소스 프로브(brew cask/formula)는 병렬로 미리 조회한다 — 계획 대기시간 단축.
 	var (
-		probeWg          sync.WaitGroup
+		probeWg           sync.WaitGroup
 		caskOK, formulaOK bool
 	)
 	probeWg.Add(2)
@@ -250,17 +240,21 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	go func() { defer probeWg.Done(); formulaOK = brewInstalled(ctx, run, query, false) }()
 	probeWg.Wait()
 
+	// 설치된 앱의 Bundle ID 수집은 비싸므로(앱마다 mdls) 실제로 필요할 때 1회만 수행한다.
+	// 벤더 판단(augmentVendor)과 접두사 과매칭 방어(filterOtherAppOwned)가 공유한다.
+	installed := sync.OnceValue(func() []installedApp { return installedAppList(ctx, run) })
+
 	caskMatched := false
 
 	// 1) brew cask
 	if caskOK {
 		caskMatched = true
 		t := Target{Kind: KindBrewCask, Name: query}
-		t.Commands = append(t.Commands, "brew uninstall --cask "+query)
+		t.Argv = append(t.Argv, []string{"brew", "uninstall", "--cask", query})
 		// 캐스크가 설치한 앱의 Bundle ID로 잔여 설정 파일도 정리.
 		if app := findAppByName(query); app != "" {
 			t.BundleID = bundleIDOf(ctx, run, app)
-			addLeftovers(&t, home, t.BundleID, filepath.Base(strings.TrimSuffix(app, ".app")))
+			addLeftovers(&t, home, t.BundleID, filepath.Base(strings.TrimSuffix(app, ".app")), installed)
 		}
 		t.Suggestions = append(t.Suggestions, "삭제 후 남은 의존성 정리: brew autoremove")
 		plan.Targets = append(plan.Targets, t)
@@ -269,7 +263,7 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	// 2) brew formula
 	if formulaOK {
 		t := Target{Kind: KindBrewFormula, Name: query}
-		t.Commands = append(t.Commands, "brew uninstall "+query)
+		t.Argv = append(t.Argv, []string{"brew", "uninstall", query})
 		if deps := reverseDeps(ctx, run, query); len(deps) > 0 {
 			t.Warnings = append(t.Warnings,
 				"다음 설치된 패키지가 '"+query+"'에 의존합니다 → 삭제 시 문제 가능: "+strings.Join(deps, ", "))
@@ -284,8 +278,6 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 	// 3) 독립 GUI 앱 (brew cask로 이미 처리된 경우는 제외)
 	if !caskMatched {
 		apps, exact := findAppsByName(query)
-		// 벤더 판단용 Bundle ID 수집은 비싸므로(앱마다 mdls) 벤더 매칭이 실제로 필요할 때만 1회 수행.
-		installedIDs := sync.OnceValue(func() []string { return installedAppBundleIDs(ctx, run) })
 		for _, app := range apps {
 			if IsProtected(app) {
 				continue // 시스템 경로의 앱은 건드리지 않음
@@ -302,9 +294,9 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 			}
 			// 앱 번들 자체를 휴지통으로.
 			t.TrashPaths = append(t.TrashPaths, PathMatch{Path: app, Confidence: ConfHigh, Reason: "앱 번들"})
-			addLeftovers(&t, home, bundleID, appName)
+			addLeftovers(&t, home, bundleID, appName, installed)
 			// 벤더 폴더(Google/, Microsoft/ 등) 처리: 인벤토리 참조해 하위만/전체 결정.
-			augmentVendor(&t, home, bundleID, appName, installedIDs)
+			augmentVendor(&t, home, bundleID, appName, func() []string { return bundleIDsOf(installed()) })
 			// 다른 위치의 동일 Bundle ID 앱 사본(mdfind)도 후보로.
 			for _, other := range mdfindByBundleID(ctx, run, bundleID) {
 				if other != app && !IsProtected(other) && strings.HasSuffix(other, ".app") {
@@ -315,6 +307,10 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 		}
 	}
 
+	// 권한이 없어 어차피 실패할 경로를 먼저 갈라내고(회수 예상에도 넣지 않는다),
+	// 남은 경로만 재서 "회수 예상"을 낸다(앱 목록의 표시 용량과 다를 수 있다).
+	markNeedsAdmin(plan)
+	MeasureTrashSizes(ctx, run, plan)
 	return plan
 }
 
@@ -325,7 +321,7 @@ func BuildPlan(ctx context.Context, run *iexec.Runner, query string) *Plan {
 //
 // installedIDs는 지연 공급자다 — 벤더 매칭이 없으면 비싼 Bundle ID 수집을 아예 안 한다.
 func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func() []string) {
-	v, appSubdir, ok := lookupVendor(vendors(), bundleID, appName)
+	v, appSubdir, ok := paths.LookupVendor(paths.Vendors(), bundleID, appName)
 	if !ok {
 		return
 	}
@@ -334,15 +330,15 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func(
 		seen[p.Path] = true
 	}
 
-	others := countVendorApps(v, installedIDs(), bundleID)
-	roots := libraryRoots(home)
+	others := paths.CountVendorApps(v, installedIDs(), bundleID)
+	roots := paths.LibraryRoots(home)
 
 	if others > 0 {
 		// 벤더 폴더는 공유 중 → 앱 전용 하위 폴더만.
 		for _, folder := range v.Folders {
 			for _, root := range roots {
 				sub := filepath.Join(root, folder, appSubdir)
-				if seen[sub] || IsProtected(sub) || !exists(sub) {
+				if seen[sub] || IsProtected(sub) || !paths.Exists(sub) {
 					continue
 				}
 				seen[sub] = true
@@ -355,7 +351,7 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func(
 		// 공유 컴포넌트는 보존하고 제외 목록에 표시.
 		for _, sc := range v.SharedComponents {
 			for _, g := range sc.Globs {
-				for _, m := range globHome(home, g) {
+				for _, m := range paths.GlobHome(home, g) {
 					if IsProtected(m) {
 						continue
 					}
@@ -373,7 +369,7 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func(
 	for _, folder := range v.Folders {
 		for _, root := range roots {
 			dir := filepath.Join(root, folder)
-			if seen[dir] || IsProtected(dir) || !exists(dir) {
+			if seen[dir] || IsProtected(dir) || !paths.Exists(dir) {
 				continue
 			}
 			seen[dir] = true
@@ -387,7 +383,7 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func(
 	// 단, 이미 담긴 벤더 폴더 아래에 있는 경로는 중복이므로 건너뛴다.
 	for _, sc := range v.SharedComponents {
 		for _, g := range sc.Globs {
-			for _, m := range globHome(home, g) {
+			for _, m := range paths.GlobHome(home, g) {
 				if seen[m] || IsProtected(m) || coveredByExisting(m, t.TrashPaths) {
 					continue
 				}
@@ -401,11 +397,6 @@ func augmentVendor(t *Target, home, bundleID, appName string, installedIDs func(
 	}
 }
 
-func exists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
-}
-
 // coveredByExisting은 path가 이미 담긴 어떤 경로와 같거나 그 하위인지 본다(중복 삭제 방지).
 func coveredByExisting(path string, existing []PathMatch) bool {
 	for _, p := range existing {
@@ -416,58 +407,67 @@ func coveredByExisting(path string, existing []PathMatch) bool {
 	return false
 }
 
-// globHome은 home 기준 상대 glob 패턴을 펼친다.
-func globHome(home, rel string) []string {
-	matches, _ := filepath.Glob(filepath.Join(home, rel))
-	return matches
-}
-
-// installedAppBundleIDs는 앱 디렉토리의 *.app들의 Bundle ID를 모은다(벤더 판단용).
-// 앱마다 mdls 1회라 병렬(worker 8)로 조회한다.
-func installedAppBundleIDs(ctx context.Context, run *iexec.Runner) []string {
-	var paths []string
-	for _, root := range appRoots() {
+// installedAppList는 앱 디렉토리의 *.app들의 Bundle ID + 이름을 모은다
+// (벤더 판단 및 접두사 과매칭 방어용). 앱마다 mdls 1회라 병렬(worker 8)로 조회한다.
+func installedAppList(ctx context.Context, run *iexec.Runner) []installedApp {
+	var appPaths []string
+	for _, root := range paths.AppRoots() {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".app") {
-				paths = append(paths, filepath.Join(root, e.Name()))
+				appPaths = append(appPaths, filepath.Join(root, e.Name()))
 			}
 		}
 	}
 
-	ids := make([]string, len(paths))
+	apps := make([]installedApp, len(appPaths))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
-	for i, p := range paths {
+	for i, p := range appPaths {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i int, p string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			ids[i] = bundleIDOf(ctx, run, p)
+			apps[i] = installedApp{
+				ID:   bundleIDOf(ctx, run, p),
+				Name: strings.TrimSuffix(filepath.Base(p), ".app"),
+			}
 		}(i, p)
 	}
 	wg.Wait()
 
-	out := ids[:0]
-	for _, id := range ids {
-		if id != "" {
-			out = append(out, id)
+	out := apps[:0]
+	for _, a := range apps {
+		if a.ID != "" {
+			out = append(out, a)
 		}
 	}
 	return out
 }
 
+// bundleIDsOf는 설치 앱 목록에서 Bundle ID만 뽑는다(벤더/고아 판정은 ID만 쓴다).
+func bundleIDsOf(apps []installedApp) []string {
+	out := make([]string, 0, len(apps))
+	for _, a := range apps {
+		out = append(out, a.ID)
+	}
+	return out
+}
+
 // addLeftovers는 존재하고 블랙리스트가 아닌 잔여물만 타깃에 더한다(이미 담긴 경로는 건너뜀).
-func addLeftovers(t *Target, home, bundleID, appName string) {
+// 접두사 glob이 삼킨 "다른 설치 앱 소유" 경로는 삭제하지 않고 보존 목록(Excluded)으로 옮긴다.
+func addLeftovers(t *Target, home, bundleID, appName string, installed func() []installedApp) {
+	matches, excluded := filterOtherAppOwned(paths.LeftoverPaths(home, bundleID, appName), bundleID, installed)
+	t.Excluded = append(t.Excluded, excluded...)
 	seen := map[string]bool{}
 	for _, p := range t.TrashPaths {
 		seen[p.Path] = true
 	}
-	for _, pm := range gatherLeftovers(home, bundleID, appName) {
+	for _, pm := range matches {
 		if seen[pm.Path] {
 			continue
 		}
@@ -517,18 +517,6 @@ func bundleIDOf(ctx context.Context, run *iexec.Runner, appPath string) string {
 	return BundleIDFromPlist(ctx, run, appPath)
 }
 
-// BundleIDFromPlist는 앱 번들의 Info.plist에서 CFBundleIdentifier를 직접 읽는다.
-// (바이너리 plist도 있어 plutil을 쓴다.) mdls가 실패했을 때만 부르는 폴백이다.
-func BundleIDFromPlist(ctx context.Context, run *iexec.Runner, appPath string) string {
-	plist := filepath.Join(appPath, "Contents", "Info.plist")
-	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: 10},
-		"plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-", plist)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out)
-}
-
 func mdfindByBundleID(ctx context.Context, run *iexec.Runner, bundleID string) []string {
 	if bundleID == "" {
 		return nil
@@ -545,12 +533,6 @@ func mdfindByBundleID(ctx context.Context, run *iexec.Runner, bundleID string) [
 		}
 	}
 	return paths
-}
-
-// appRoots는 GUI 앱을 찾을 디렉토리다(시스템 앱 디렉토리는 제외).
-func appRoots() []string {
-	home, _ := os.UserHomeDir()
-	return []string{"/Applications", filepath.Join(home, "Applications"), "/Applications/Utilities"}
 }
 
 // appEntry는 앱 파일명과 전체 경로 쌍이다(매칭 로직 테스트 분리용).
@@ -584,9 +566,9 @@ func matchApps(entries []appEntry, query string) (matched []appEntry, exact bool
 }
 
 // findAppsByName은 이름이 query에 맞는 *.app 경로를 찾는다(정확 일치 우선, 없으면 부분일치).
-func findAppsByName(query string) (paths []string, exact bool) {
+func findAppsByName(query string) (found []string, exact bool) {
 	var entries []appEntry
-	for _, root := range appRoots() {
+	for _, root := range paths.AppRoots() {
 		dirents, err := os.ReadDir(root)
 		if err != nil {
 			continue
@@ -597,9 +579,9 @@ func findAppsByName(query string) (paths []string, exact bool) {
 	}
 	matched, exact := matchApps(entries, query)
 	for _, m := range matched {
-		paths = append(paths, m.path)
+		found = append(found, m.path)
 	}
-	return paths, exact
+	return found, exact
 }
 
 // findAppByName은 findAppsByName의 첫 결과를 돌려준다(캐스크 잔여물 조회용).

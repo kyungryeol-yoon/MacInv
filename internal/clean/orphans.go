@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/macinv/internal/paths"
 )
 
 // KindOrphan은 고아 잔여물(지워진 앱이 남긴 데이터) 타깃이다.
@@ -42,9 +43,6 @@ var orphanLocs = []orphanLoc{
 // "Google", "Notion" 같은 이름 폴더는 귀속을 확신할 수 없으므로 고아 후보에서 아예 제외한다.
 var bundleIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9_-]+){2,}$`)
 
-// ByHost plist의 호스트 UUID 접미사(com.x.y.2CD92239-....plist)를 벗기기 위한 패턴.
-var uuidSuffixRe = regexp.MustCompile(`\.[0-9A-Fa-f]{8}-[0-9A-Fa-f-]{27}$`)
-
 // extractOrphanID는 항목 이름에서 Bundle ID를 추출한다(순수 함수 — 테스트 대상).
 // strip 접미사가 요구되는데 없으면 ""(대상 아님). group. 접두사와 ByHost UUID 접미사를 정규화한다.
 func extractOrphanID(name, strip string) string {
@@ -54,14 +52,10 @@ func extractOrphanID(name, strip string) string {
 		}
 		name = strings.TrimSuffix(name, strip)
 	}
-	name = uuidSuffixRe.ReplaceAllString(name, "")
+	name = paths.StripHostUUID(name)
 	name = strings.TrimPrefix(name, "group.")
 	return name
 }
-
-// 팀 ID 접두사(예: 243LU875E5., UBF8T346G9.) — 프로비저닝된 그룹 컨테이너.
-// 소유 앱 귀속에 팀ID→앱 매핑이 필요해 확신할 수 없으므로 전부 보존한다.
-var teamIDPrefixRe = regexp.MustCompile(`^[A-Z0-9]{10}\.`)
 
 // orphanProtectedPrefixes는 고아 판정에서 무조건 보존하는 알려진 시스템/공유 ID 접두사다.
 //   - is.workflow.       : Apple 단축어(Shortcuts) — 시스템 앱이라 /Applications 스캔에 없음
@@ -80,7 +74,7 @@ func orphanProtected(id string) bool {
 	if strings.HasPrefix(id, "systemgroup.") {
 		return true
 	}
-	if teamIDPrefixRe.MatchString(id) {
+	if paths.HasTeamIDPrefix(id) {
 		return true
 	}
 	for _, pfx := range orphanProtectedPrefixes {
@@ -97,7 +91,7 @@ func orphanProtected(id string) bool {
 //   - 애플/시스템/공유 프레임워크(orphanProtected)는 무조건 보존
 //   - 설치 ID와 양방향 접두사 일치(파생물 포함)면 보존
 //   - 벤더 공유: id가 벤더 접두사에 맞고 그 벤더 앱이 하나라도 설치돼 있으면 보존
-func classifyOrphan(id string, installed []string, vs []Vendor) bool {
+func classifyOrphan(id string, installed []string, vs []paths.Vendor) bool {
 	if !bundleIDRe.MatchString(id) {
 		return false
 	}
@@ -140,8 +134,8 @@ func BuildOrphansPlan(ctx context.Context, run *iexec.Runner) *Plan {
 	home, _ := os.UserHomeDir()
 	plan := &Plan{Query: "고아 잔여물 (설치 목록에 없는 Bundle ID)", Verb: "정리", Icon: "🧽"}
 
-	installed := installedAppBundleIDs(ctx, run)
-	vs := vendors()
+	installed := bundleIDsOf(installedAppList(ctx, run))
+	vs := paths.Vendors()
 	lib := filepath.Join(home, "Library")
 
 	byID := map[string][]PathMatch{}
@@ -178,5 +172,7 @@ func BuildOrphansPlan(ctx context.Context, run *iexec.Runner) *Plan {
 			TrashPaths: byID[id],
 		})
 	}
+	markNeedsAdmin(plan)
+	MeasureTrashSizes(ctx, run, plan)
 	return plan
 }

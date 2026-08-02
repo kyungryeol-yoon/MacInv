@@ -4,12 +4,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyungryeol-yoon/macinv/internal/paths"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
 
 func TestClassifyOrphan(t *testing.T) {
 	installed := []string{"com.google.Chrome", "com.googlecode.iterm2", "org.godotengine.godot"}
-	vs := vendors()
+	vs := paths.Vendors()
 
 	cases := []struct {
 		name string
@@ -83,7 +84,7 @@ func TestUpgradePlanFromOutdated(t *testing.T) {
 		if tgt.CmdTimeoutSec != upgradeTimeoutSec {
 			t.Errorf("%s 타임아웃 = %d, want %d", tgt.Name, tgt.CmdTimeoutSec, upgradeTimeoutSec)
 		}
-		joined += strings.Join(tgt.Commands, ";") + ";"
+		joined += strings.Join(argvLines(tgt.Argv), ";") + ";"
 	}
 	for _, want := range []string{
 		"brew upgrade git", "brew upgrade --cask iterm2",
@@ -98,4 +99,13 @@ func TestUpgradePlanFromOutdated(t *testing.T) {
 	if UpgradePlanFromOutdated(nil).HasContent() {
 		t.Errorf("빈 rows인데 계획에 내용 있음")
 	}
+}
+
+// argvLines는 타깃의 명령들을 표시용 문자열로 펼친다(테스트 비교용).
+func argvLines(argv [][]string) []string {
+	var out []string
+	for _, a := range argv {
+		out = append(out, ShellQuote(a))
+	}
+	return out
 }

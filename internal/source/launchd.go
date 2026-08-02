@@ -16,7 +16,7 @@ type launchdSource struct {
 	run *iexec.Runner
 }
 
-func (s *launchdSource) Name() string   { return NameLaunchd }
+func (s *launchdSource) Name() string    { return NameLaunchd }
 func (s *launchdSource) Available() bool { return true }
 
 type launchdDir struct {

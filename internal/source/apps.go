@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/macinv/internal/paths"
 	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
 
@@ -18,23 +18,15 @@ import (
 type appsSource struct {
 	run      *iexec.Runner
 	withSize bool
+	progress func(stage string, done, total int) // nil 가능
 }
 
 func (s *appsSource) Name() string    { return NameApps }
-func (s *appsSource) Available() bool  { return true } // 앱 디렉토리는 항상 존재
-
-func appRoots() []string {
-	home, _ := os.UserHomeDir()
-	return []string{
-		"/Applications",
-		filepath.Join(home, "Applications"),
-		"/Applications/Utilities",
-	}
-}
+func (s *appsSource) Available() bool { return true } // 앱 디렉토리는 항상 존재
 
 func (s *appsSource) Scan(ctx context.Context) (any, error) {
 	var apps []string
-	for _, root := range appRoots() {
+	for _, root := range paths.AppRoots() {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -52,6 +44,22 @@ func (s *appsSource) Scan(ctx context.Context) (any, error) {
 	results := make([]report.App, len(apps))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8) // worker pool 8
+	// 데이터 용량 측정(du)은 앱당 수 초까지 걸려 진행 표시가 없으면 멈춘 것처럼 보인다.
+	// 완료 카운터는 여러 goroutine이 올리므로 뮤텍스로 직렬화한다.
+	var (
+		progMu sync.Mutex
+		done   int
+	)
+	reportProgress := func() {
+		if s.progress == nil {
+			return
+		}
+		progMu.Lock()
+		done++
+		n := done
+		progMu.Unlock()
+		s.progress("앱 용량 측정 중", n, len(apps))
+	}
 	for i, path := range apps {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -59,6 +67,9 @@ func (s *appsSource) Scan(ctx context.Context) (any, error) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			results[i] = s.scanOne(ctx, path)
+			if s.withSize {
+				reportProgress()
+			}
 		}(i, path)
 	}
 	wg.Wait()
@@ -95,7 +106,7 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 	if app.BundleID == nil {
 		// mdls가 (null)을 주는 앱이 있다 — Info.plist 직독으로 폴백.
 		// Bundle ID가 없으면 clean/용량 집계가 이름 기반으로만 돌아 잔여물을 놓친다.
-		app.BundleID = report.PtrOrNil(clean.BundleIDFromPlist(ctx, s.run, path))
+		app.BundleID = report.PtrOrNil(paths.BundleIDFromPlist(ctx, s.run, path))
 	}
 	if app.DateAdded == nil {
 		app.DateAdded = birthtime(path)
@@ -108,7 +119,7 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 }
 
 // dataKB는 앱 번들 밖(~/Library 등)에 쌓인 데이터/캐시 용량을 잰다.
-// 경로 목록은 clean의 잔여물 매칭을 그대로 쓴다 — "clean이 지울 대상"과 집계가 일치한다.
+// 경로 목록은 paths의 측정용 규칙을 쓴다(clean의 삭제 계획과 같은 저수준 매칭 위에 있다).
 func (s *appsSource) dataKB(ctx context.Context, app report.App) *int {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -118,7 +129,7 @@ func (s *appsSource) dataKB(ctx context.Context, app report.App) *int {
 	if app.BundleID != nil {
 		bundleID = *app.BundleID
 	}
-	matches := clean.SizePaths(home, bundleID, app.Name)
+	matches := paths.SizePaths(home, bundleID, app.Name)
 	if len(matches) == 0 {
 		return nil
 	}

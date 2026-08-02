@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
 )
@@ -34,8 +33,16 @@ func MoveToTrash(ctx context.Context, run *iexec.Runner, path string) error {
 		return err
 	}
 	// 폴백: Finder에게 휴지통 이동 위임(rm 아님).
-	script := fmt.Sprintf(`tell application "Finder" to delete POSIX file %q`, path)
-	_, err := run.Run(ctx, iexec.Opt{TimeoutSec: 60, Strict: true}, "osascript", "-e", script)
+	// 경로를 스크립트 본문에 끼워 넣지 않고 argv로 넘긴다 —
+	// Go의 %q는 Go 이스케이프 규칙이라 AppleScript 문자열 규칙과 어긋날 수 있고,
+	// on run argv 형태면 따옴표/역슬래시가 든 경로도 이스케이프 없이 그대로 전달된다.
+	// `POSIX file <변수>`는 리터럴과 달리 alias 강제 변환이 필요하다(없으면 Finder -1728).
+	_, err := run.Run(ctx, iexec.Opt{TimeoutSec: 60, Strict: true}, "osascript",
+		"-e", "on run argv",
+		"-e", "set p to POSIX file (item 1 of argv) as alias",
+		"-e", `tell application "Finder" to delete p`,
+		"-e", "end run",
+		"--", path)
 	return err
 }
 
@@ -47,9 +54,9 @@ func Execute(ctx context.Context, run *iexec.Runner, plan *Plan,
 	onTrash func(res TrashResult),
 ) {
 	for _, t := range plan.Targets {
-		for _, cmdline := range t.Commands {
-			err := runShellWords(ctx, run, cmdline, t.CmdTimeoutSec)
-			onCommand(cmdline, err)
+		for _, argv := range t.Argv {
+			err := runArgv(ctx, run, argv, t.CmdTimeoutSec)
+			onCommand(ShellQuote(argv), err)
 		}
 		for _, pm := range t.TrashPaths {
 			err := MoveToTrash(ctx, run, pm.Path)
@@ -58,18 +65,17 @@ func Execute(ctx context.Context, run *iexec.Runner, plan *Plan,
 	}
 }
 
-// runShellWords는 "brew uninstall foo" 같은 계획 명령을 공백 분리해 실행한다.
-// 계획 명령은 코드가 생성한 고정 형식(brew ...)이라 공백 분리로 충분하다.
+// runArgv는 계획의 명령(인자 배열)을 셸 없이 그대로 실행한다.
+// 문자열로 저장했다가 공백으로 다시 쪼개지 않는 것이 핵심 — 공백이 든 인자가 살아남는다.
 // timeoutSec가 0이면 기본 300초.
-func runShellWords(ctx context.Context, run *iexec.Runner, cmdline string, timeoutSec int) error {
-	fields := strings.Fields(cmdline)
-	if len(fields) == 0 {
+func runArgv(ctx context.Context, run *iexec.Runner, argv []string, timeoutSec int) error {
+	if len(argv) == 0 {
 		return nil
 	}
 	if timeoutSec <= 0 {
 		timeoutSec = 300
 	}
 	// 변경 명령은 Strict: 비허용 종료코드는 stdout이 있어도 실패로 본다(부분 실패를 성공으로 오인 방지).
-	_, err := run.Run(ctx, iexec.Opt{TimeoutSec: timeoutSec, Strict: true}, fields[0], fields[1:]...)
+	_, err := run.Run(ctx, iexec.Opt{TimeoutSec: timeoutSec, Strict: true}, argv[0], argv[1:]...)
 	return err
 }

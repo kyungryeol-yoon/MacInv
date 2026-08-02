@@ -7,14 +7,14 @@ import (
 
 func TestExtractVersion(t *testing.T) {
 	cases := map[string]string{
-		"v22.22.2\n":                                    "22.22.2", // node
-		"go version go1.26.5 darwin/arm64":              "1.26.5",  // go
-		"rustc 1.75.0 (82e1608df 2023-12-21)":           "1.75.0",  // rust
-		"openjdk version \"21.0.1\" 2023-10-17":         "21.0.1",  // java (stderr)
-		"Python 3.13.1":                                 "3.13.1",  // python
-		"Apple Swift version 6.0 (swift-6.0-RELEASE)":   "6.0",     // swift (2 components)
-		"PHP 8.3.0 (cli) (built: ...)":                  "8.3.0",   // php
-		"":                                              "",        // 미설치/빈 출력
+		"v22.22.2\n":                                  "22.22.2", // node
+		"go version go1.26.5 darwin/arm64":            "1.26.5",  // go
+		"rustc 1.75.0 (82e1608df 2023-12-21)":         "1.75.0",  // rust
+		"openjdk version \"21.0.1\" 2023-10-17":       "21.0.1",  // java (stderr)
+		"Python 3.13.1":                               "3.13.1",  // python
+		"Apple Swift version 6.0 (swift-6.0-RELEASE)": "6.0",     // swift (2 components)
+		"PHP 8.3.0 (cli) (built: ...)":                "8.3.0",   // php
+		"":                                            "",        // 미설치/빈 출력
 	}
 	for in, want := range cases {
 		if got := extractVersion(in); got != want {

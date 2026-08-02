@@ -1,7 +1,6 @@
 package clean
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -9,16 +8,16 @@ import (
 func TestUpgradeNpmSelfUsesNpx(t *testing.T) {
 	// BuildUpgradePlan은 시스템 조회를 하므로, 명령 생성 규칙만 직접 검증한다.
 	tgt := npmUpgradeTarget("npm")
-	if len(tgt.Commands) != 1 || !strings.Contains(tgt.Commands[0], "npx -y npm@latest install -g npm@latest") {
-		t.Errorf("npm 셀프 업데이트 명령 오류: %v", tgt.Commands)
+	if len(tgt.Argv) != 1 || ShellQuote(tgt.Argv[0]) != "npx -y npm@latest install -g npm@latest" {
+		t.Errorf("npm 셀프 업데이트 명령 오류: %v", tgt.Argv)
 	}
 	if len(tgt.Warnings) == 0 {
 		t.Errorf("npm 셀프 업데이트 경고가 없음")
 	}
 
 	other := npmUpgradeTarget("@google/gemini-cli")
-	if len(other.Commands) != 1 || other.Commands[0] != "npm install -g @google/gemini-cli@latest" {
-		t.Errorf("일반 npm 패키지 명령 오류: %v", other.Commands)
+	if len(other.Argv) != 1 || ShellQuote(other.Argv[0]) != "npm install -g @google/gemini-cli@latest" {
+		t.Errorf("일반 npm 패키지 명령 오류: %v", other.Argv)
 	}
 }
 

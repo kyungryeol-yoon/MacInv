@@ -5,37 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-func TestIsProtected(t *testing.T) {
-	protected := []string{
-		"/System",
-		"/System/Applications/Safari.app",
-		"/usr/bin/git",
-		"/usr",
-		"/bin/ls",
-		"/sbin/ping",
-		"/Library/Apple",
-		"/Library/Apple/System/foo",
-	}
-	for _, p := range protected {
-		if !IsProtected(p) {
-			t.Errorf("IsProtected(%q) = false, want true (블랙리스트)", p)
-		}
-	}
-	allowed := []string{
-		"/Applications/Godot.app",
-		"/Users/cris/Library/Caches/org.godotengine.godot",
-		"/Users/cris/Applications/Foo.app",
-		"/Library/LaunchAgents/com.example.plist", // /Library/Apple 이 아님
-		"/usROOT/not-usr",                          // 접두사만 비슷 → 보호 아님
-	}
-	for _, p := range allowed {
-		if IsProtected(p) {
-			t.Errorf("IsProtected(%q) = true, want false", p)
-		}
-	}
-}
+	"github.com/kyungryeol-yoon/macinv/internal/paths"
+)
 
 // 이름 매칭: 정확 일치가 있으면 그것만, 없으면 부분일치 + exact=false(호출자가 경고 표시).
 func TestMatchApps(t *testing.T) {
@@ -66,46 +38,60 @@ func TestMatchApps(t *testing.T) {
 	}
 }
 
-func TestIsAppleSystemApp(t *testing.T) {
-	apple := []string{"com.apple.Safari", "com.apple.dt.Xcode", "com.apple.finder"}
-	for _, b := range apple {
-		if !IsAppleSystemApp(b) {
-			t.Errorf("IsAppleSystemApp(%q) = false, want true", b)
+// 접두사 glob이 삼킨 "다른 설치 앱 소유" 경로는 계획에서 빠지고 보존 사유가 남아야 한다.
+// 핵심은 구분이다: .canary(다른 앱)는 제외, .helper(어느 앱도 소유 안 함)는 유지.
+func TestExcludeOtherAppIDs(t *testing.T) {
+	installed := []installedApp{
+		{ID: "com.google.Chrome", Name: "Google Chrome"},
+		{ID: "com.google.Chrome.canary", Name: "Google Chrome Canary"},
+	}
+	matches := []PathMatch{
+		{Path: "/h/Library/Caches/com.google.Chrome", Confidence: ConfHigh},
+		{Path: "/h/Library/Caches/com.google.Chrome.canary", Confidence: ConfHigh},
+		{Path: "/h/Library/LaunchAgents/com.google.Chrome.helper.plist", Confidence: ConfHigh},
+		{Path: "/h/Library/Application Support/com.google.Chrome.ShipIt", Confidence: ConfHigh},
+	}
+	kept, excluded := excludeOtherAppIDs(matches, "com.google.Chrome", installed)
+
+	keptSet := map[string]bool{}
+	for _, k := range kept {
+		keptSet[k.Path] = true
+	}
+	for _, want := range []string{
+		"/h/Library/Caches/com.google.Chrome",
+		"/h/Library/LaunchAgents/com.google.Chrome.helper.plist",
+		"/h/Library/Application Support/com.google.Chrome.ShipIt",
+	} {
+		if !keptSet[want] {
+			t.Errorf("자기/파생 경로가 제외됨: %s", want)
 		}
 	}
-	notApple := []string{"org.godotengine.godot", "com.google.Chrome", "com.applesauce.app", ""}
-	for _, b := range notApple {
-		if IsAppleSystemApp(b) {
-			t.Errorf("IsAppleSystemApp(%q) = true, want false", b)
-		}
+	if keptSet["/h/Library/Caches/com.google.Chrome.canary"] {
+		t.Error("타 앱(canary) 소유 경로가 계획에 남음 — [확실]이라 --apply 기본 삭제 대상이 된다")
+	}
+	if len(excluded) != 1 || !strings.Contains(excluded[0].Reason, "Google Chrome Canary") {
+		t.Errorf("보존 사유가 잘못됨: %+v", excluded)
+	}
+
+	// 반대 방향: canary를 지울 때 canary 파생물이 Chrome 소유로 오판되면 안 된다(가장 긴 ID가 이긴다).
+	kept, _ = excludeOtherAppIDs([]PathMatch{
+		{Path: "/h/Library/Caches/com.google.Chrome.canary.helper"},
+	}, "com.google.Chrome.canary", installed)
+	if len(kept) != 1 {
+		t.Error("canary 파생물이 Chrome 소유로 오판됨")
+	}
+
+	// Bundle ID를 모르면(빈 문자열) 아무것도 제외하지 않는다.
+	kept, excluded = excludeOtherAppIDs(matches, "", installed)
+	if len(kept) != len(matches) || len(excluded) != 0 {
+		t.Error("selfID가 비었는데 경로가 제외됨")
 	}
 }
 
-func TestBundleGlobs(t *testing.T) {
-	home := "/Users/cris"
-	specs := bundleGlobs(home, "org.godotengine.godot")
-	if len(specs) == 0 {
-		t.Fatal("bundleGlobs가 비어 있음")
-	}
-	for _, s := range specs {
-		if s.confidence != ConfHigh {
-			t.Errorf("bundle glob은 모두 high여야 함: %+v", s)
-		}
-		// 접두사 매칭이어야 헬퍼/파생 파일을 잡는다: 사용자 홈 또는 /Library 아래.
-		if !strings.Contains(s.pattern, "org.godotengine.godot") {
-			t.Errorf("패턴에 Bundle ID 없음: %s", s.pattern)
-		}
-	}
-	// Bundle ID 없으면 패턴 없음.
-	if len(bundleGlobs(home, "")) != 0 {
-		t.Errorf("Bundle ID 없는데 패턴 생성됨")
-	}
-}
-
-// gatherLeftovers가 접두사 glob으로 헬퍼/파생 파일까지 잡는지 실제 파일로 검증.
-func TestGatherLeftoversGlob(t *testing.T) {
+// 회귀: Chrome/Chrome Canary가 둘 다 설치된 상태에서 Chrome 계획에 canary 경로가 없어야 한다.
+func TestLeftoversDoNotSwallowOtherApp(t *testing.T) {
 	home := t.TempDir()
-	mustCreate := func(rel string) string {
+	mk := func(rel string) string {
 		p := filepath.Join(home, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -115,34 +101,30 @@ func TestGatherLeftoversGlob(t *testing.T) {
 		}
 		return p
 	}
-	bundleID := "com.example.app"
-	exact := mustCreate("Library/Preferences/" + bundleID + ".plist")
-	helper := mustCreate("Library/LaunchAgents/" + bundleID + ".helper.plist") // 파생 파일
-	cache := mustCreate("Library/Caches/" + bundleID)
-	nameDir := mustCreate("Library/Application Support/ExampleApp/data.txt")
-	unrelated := mustCreate("Library/Preferences/com.other.thing.plist")
+	self := mk("Library/Caches/com.google.Chrome")
+	canary := mk("Library/Caches/com.google.Chrome.canary")
+	helper := mk("Library/LaunchAgents/com.google.Chrome.helper.plist")
 
-	got := gatherLeftovers(home, bundleID, "ExampleApp")
-	found := map[string]string{}
-	for _, pm := range got {
-		found[pm.Path] = pm.Confidence
+	installed := func() []installedApp {
+		return []installedApp{
+			{ID: "com.google.Chrome", Name: "Google Chrome"},
+			{ID: "com.google.Chrome.canary", Name: "Google Chrome Canary"},
+		}
 	}
+	kept, excluded := filterOtherAppOwned(
+		paths.LeftoverPaths(home, "com.google.Chrome", "Google Chrome"), "com.google.Chrome", installed)
 
-	if found[exact] != ConfHigh {
-		t.Errorf("정확 일치 plist 미검출")
+	got := map[string]bool{}
+	for _, k := range kept {
+		got[k.Path] = true
 	}
-	if found[helper] != ConfHigh {
-		t.Errorf("파생 파일(<bundleID>.helper.plist) 미검출 — 접두사 glob 실패")
+	if !got[self] || !got[helper] {
+		t.Errorf("자기 경로/파생 헬퍼가 빠짐: %v", got)
 	}
-	if found[cache] != ConfHigh {
-		t.Errorf("캐시 미검출")
+	if got[canary] {
+		t.Error("Chrome 계획에 Chrome Canary 경로가 포함됨 (접두사 과매칭)")
 	}
-	// 이름 기반 디렉토리는 low 확신으로 잡혀야 함(부모 디렉토리).
-	if found[filepath.Join(home, "Library/Application Support/ExampleApp")] != ConfLow {
-		t.Errorf("이름 기반 디렉토리 미검출/확신도 오류: %v", found)
-	}
-	_ = nameDir
-	if _, ok := found[unrelated]; ok {
-		t.Errorf("무관한 파일이 잡힘: %s", unrelated)
+	if len(excluded) != 1 || excluded[0].Path != canary {
+		t.Errorf("보존 목록이 잘못됨: %+v", excluded)
 	}
 }

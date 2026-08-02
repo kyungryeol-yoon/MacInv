@@ -24,7 +24,7 @@ const (
 // 프로브 3개(각각 외부 명령 1회)는 독립이라 병렬 조회한다. go bin은 stat 1회라 동기.
 func appendPackageTargets(ctx context.Context, run *iexec.Runner, plan *Plan, query, home string) {
 	var (
-		wg                    sync.WaitGroup
+		wg                     sync.WaitGroup
 		npmOK, pipxOK, cargoOK bool
 	)
 	wg.Add(3)
@@ -36,20 +36,20 @@ func appendPackageTargets(ctx context.Context, run *iexec.Runner, plan *Plan, qu
 	if npmOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindNpm, Name: query,
-			Commands:    []string{"npm uninstall -g " + query},
+			Argv:        [][]string{{"npm", "uninstall", "-g", query}},
 			Suggestions: []string{"npm 전역 패키지는 ~/Library 잔여물이 거의 없습니다."},
 		})
 	}
 	if pipxOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindPipx, Name: query,
-			Commands: []string{"pipx uninstall " + query},
+			Argv: [][]string{{"pipx", "uninstall", query}},
 		})
 	}
 	if cargoOK {
 		plan.Targets = append(plan.Targets, Target{
 			Kind: KindCargo, Name: query,
-			Commands: []string{"cargo uninstall " + query},
+			Argv: [][]string{{"cargo", "uninstall", query}},
 		})
 	}
 	if bin := goBinPath(home, query); bin != "" && !IsProtected(bin) {
