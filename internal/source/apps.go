@@ -92,6 +92,11 @@ func (s *appsSource) scanOne(ctx context.Context, path string) report.App {
 		app.Version = report.PtrOrNil(attrs[attrVersion])
 		app.DateAdded = report.PtrOrNil(attrs[attrDateAdded])
 	}
+	if app.BundleID == nil {
+		// mdls가 (null)을 주는 앱이 있다 — Info.plist 직독으로 폴백.
+		// Bundle ID가 없으면 clean/용량 집계가 이름 기반으로만 돌아 잔여물을 놓친다.
+		app.BundleID = report.PtrOrNil(clean.BundleIDFromPlist(ctx, s.run, path))
+	}
 	if app.DateAdded == nil {
 		app.DateAdded = birthtime(path)
 	}

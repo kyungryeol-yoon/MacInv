@@ -54,7 +54,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 - `--json` — (scan/outdated/trace/runtimes) 사람용 출력 대신 JSON을 stdout으로.
 - `scan --no-outdated` — 네트워크 최신버전 조회 생략(빠름).
-- `scan --no-sizes` — 앱 용량(`du`) 계산 생략.
+- `scan --no-sizes` — 앱 용량(`du`) 계산 생략. 용량은 앱 번들뿐 아니라 `~/Library`의 앱 데이터/캐시까지 재므로, 스캔에서 가장 오래 걸리는 단계다(이 맥 기준 0.9s → 9s).
 - `scan --no-runtimes` — 언어 런타임 조회 생략.
 
 ### 예시

@@ -23,7 +23,7 @@ go install .              # ~/go/bin/macinv 로 설치
 
 `macinv --version`(`-v`)으로 설치된 버전 확인(현재 0.1.0).
 
-`macinv scan` 플래그: `--json`(JSON을 stdout으로), `--no-outdated`(네트워크 최신버전 체크 생략), `--no-sizes`(du 용량 계산 생략), `--no-runtimes`(언어 런타임 조회 생략), `--quiet`(요약 생략), `-o PATH`(저장 경로). 결과는 항상 `~/.macinv/inventory.json`에 캐시된다. scan은 설치된 언어 런타임 버전도 요약에 포함한다.
+`macinv scan` 플래그: `--json`(JSON을 stdout으로), `--no-outdated`(네트워크 최신버전 체크 생략), `--no-sizes`(du 용량 계산 생략 — 앱 번들+데이터 둘 다), `--no-runtimes`(언어 런타임 조회 생략), `--quiet`(요약 생략), `-o PATH`(저장 경로). 결과는 항상 `~/.macinv/inventory.json`에 캐시된다. scan은 설치된 언어 런타임 버전도 요약에 포함한다.
 
 ## 아키텍처
 
@@ -75,6 +75,10 @@ go install .              # ~/go/bin/macinv 로 설치
 **update --all**: `collectOutdatedRows`(cmd/outdated.go, outdated 커맨드와 공용) → `clean.UpgradePlanFromOutdated`(순수 함수 — 소스를 이미 알아 프로브 불필요, mas는 `OutdatedRow.ID` 사용, npm 셀프는 npx 규칙 자동). 확인 입력은 `all`.
 
 **점검 후속 개선(2026-07-20)**: ① `clean` 앱 이름 매칭은 정확 일치 우선(위 마일스톤 5에 통합 서술). ② TUI는 시작 스캔과 재스캔 병합 직후 `PersistFunc`로 `~/.macinv/inventory.json` 캐시를 동기화한다(persist는 Update 루프에서 동기 호출 — m.rep 경합 방지). ③ 잡 완료 시 실패 건수 요약(`jobDoneMsg.failed`)을 로그에 남긴다. ④ 업그레이드/설치 명령만 `Target.CmdTimeoutSec=1800`(30분), 삭제·휴지통은 기본 300초.
+
+**앱 용량 = 번들 + 데이터(2026-08-02)**: 예전엔 `du -sk`를 `.app` 번들에만 걸어 "용량 큰 앱 Top 10"이 **설치 파일 크기 랭킹**이었다. Electron 앱은 번들 283MB인데 캐시가 67GB인 식이라 실제 디스크 점유가 전혀 안 보였다. 이제 `appsSource.dataKB`(`apps.go`)가 `clean.SizePaths`로 앱 데이터 경로를 모아 **`du -sk`에 한 번에 넘겨**(앱당 프로세스 1회) 잰다 → `report.App.DataSizeKB`(`data_size_kb,omitempty`), 정렬/표시는 `App.TotalSizeKB()`(번들+데이터). 요약은 `report.TopBySize`(순수 함수)로 뽑고 내역("앱 283 MB + 데이터 67.2 GB")을 함께 보여준다. TUI 앱 탭 용량 칸도 합계.
+- **`clean.SizePaths`(`clean/size.go`)는 측정 전용이며 삭제에 쓰지 않는다.** `LeftoverPaths`(=삭제 계획과 동일한 규칙)에 두 가지를 더한다: ① 벤더 폴더 내 앱 하위 폴더(Chrome 데이터는 `Application Support/Google/Chrome` — Bundle ID로도 앱 이름으로도 안 잡힘, 공유 컴포넌트는 제외) ② 그룹 컨테이너 이름 매칭(`groupContainerMatchesApp` — 팀ID 접두사를 떼고 **마지막 마디만 정확 비교**; OrbStack은 Bundle ID가 `dev.kdrag0n.MacVirt`라 `HUAQ24HBR6.dev.orbstack` 24GB를 ID로는 영영 못 찾는다). 부분일치를 안 쓰는 이유는 "Mail"/"Home" 같은 짧은 이름이 무관한 컨테이너를 쓸어담기 때문 — **완화 금지**. 이미 잡힌 경로의 하위 경로는 중복 계산에서 제외한다.
+- **비용**: 데이터 `du`가 스캔에서 가장 무겁다(이 맥 실측 0.9s → 9.4s, 대부분 수십 GB 캐시 트리 walk). 급하면 `--no-sizes`.
 
 **성능 최적화(2026-07-20)**: ① 앱 스캔의 mdls를 앱당 3회→1회(`parseMdlsKeyed`, 위 "알려진 주의점"에도 서술). ② `BuildUpgradePlan`(4개 프로브)·`BuildPlan`(brew 2개)·`appendPackageTargets`(3개) 프로브를 병렬화 — TUI 모달 대기 절반 이하. ③ 벤더 판단용 `installedAppBundleIDs`는 `sync.OnceValue`로 지연(벤더 매칭 시에만) + 내부 mdls 병렬(worker 8). 측정: scan 2.7s→2.0s, update 계획 1.45s→0.65s, 출력 동일 검증.
 

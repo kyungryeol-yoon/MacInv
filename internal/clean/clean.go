@@ -506,14 +506,27 @@ func reverseDeps(ctx context.Context, run *iexec.Runner, name string) []string {
 
 func bundleIDOf(ctx context.Context, run *iexec.Runner, appPath string) string {
 	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: 15}, "mdls", "-raw", "-name", "kMDItemCFBundleIdentifier", appPath)
+	if err == nil {
+		if v := strings.TrimSpace(out); v != "" && v != "(null)" {
+			return v
+		}
+	}
+	// Spotlight가 인덱싱하지 않은 앱이 있다(실측: Notion → mdls가 (null)).
+	// Bundle ID를 못 구하면 잔여물을 이름 기반으로만 찾게 되어 notion.id.* 같은
+	// 파일을 통째로 놓치므로, Info.plist를 직접 읽어 폴백한다.
+	return BundleIDFromPlist(ctx, run, appPath)
+}
+
+// BundleIDFromPlist는 앱 번들의 Info.plist에서 CFBundleIdentifier를 직접 읽는다.
+// (바이너리 plist도 있어 plutil을 쓴다.) mdls가 실패했을 때만 부르는 폴백이다.
+func BundleIDFromPlist(ctx context.Context, run *iexec.Runner, appPath string) string {
+	plist := filepath.Join(appPath, "Contents", "Info.plist")
+	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: 10},
+		"plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-", plist)
 	if err != nil {
 		return ""
 	}
-	v := strings.TrimSpace(out)
-	if v == "" || v == "(null)" {
-		return ""
-	}
-	return v
+	return strings.TrimSpace(out)
 }
 
 func mdfindByBundleID(ctx context.Context, run *iexec.Runner, bundleID string) []string {
