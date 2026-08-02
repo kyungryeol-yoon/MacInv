@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
@@ -93,7 +94,16 @@ func (m Model) browseView() string {
 	} else if len(m.queue) > 0 {
 		status = warnStyle.Render(fmt.Sprintf(" · 대기 %d", len(m.queue)))
 	}
-	help := fmt.Sprintf("  space 선택(%d) · d 삭제 · u 업데이트 · r 재스캔 · ←/→ 탭 · ↑/↓ 이동 · q 종료%s", marked, status)
+	// 정렬 토글은 용량을 표시하는 앱 탭에서만 의미가 있어 그 탭에서만 안내한다.
+	sortHint := ""
+	if m.tabs[m.active].title == "앱" {
+		order := "이름순"
+		if m.sortBySize {
+			order = "용량순"
+		}
+		sortHint = fmt.Sprintf(" · s 정렬(%s)", order)
+	}
+	help := fmt.Sprintf("  space 선택(%d) · d 삭제 · u 업데이트%s · r 재스캔 · ←/→ 탭 · ↑/↓ 이동 · q 종료%s", marked, sortHint, status)
 	b.WriteString(footerStyle.Render(help))
 	return b.String()
 }
@@ -201,11 +211,11 @@ func (m Model) confirmView() string {
 
 // --- 탭 구성 (report → rows) ---
 
-func buildTabs(rep *report.Report) []tab {
+func buildTabs(rep *report.Report, sortBySize bool) []tab {
 	s := rep.Sections
 	outdated := report.OutdatedRows(rep)
 	return []tab{
-		{"앱", appRows(s.Apps), len(s.Apps)},
+		{"앱", appRows(s.Apps, sortBySize), len(s.Apps)},
 		{"brew", brewRows(s.Brew), brewCount(s.Brew)},
 		{"패키지", packageRows(s), packageCount(s)},
 		{"런타임", runtimeRows(rep.Runtimes, rep.VersionManagers), installedRuntimeCount(rep.Runtimes)},
@@ -239,9 +249,28 @@ func installedRuntimeCount(runtimes []report.Runtime) int {
 	return n
 }
 
-func appRows(apps []report.App) []row {
+// sortAppsBySize는 앱을 실제 디스크 점유(번들+데이터) 내림차순으로 정렬한 사본을 돌려준다.
+// 용량을 못 잰 앱(--no-sizes 등)은 뒤로 보내고 그들끼리는 원래 순서(이름순)를 지킨다.
+// 순수 함수 — 원본 슬라이스를 건드리지 않는다(rep.Sections.Apps는 다른 곳에서도 쓴다).
+func sortAppsBySize(apps []report.App) []report.App {
+	out := make([]report.App, len(apps))
+	copy(out, apps)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].TotalSizeKB(), out[j].TotalSizeKB()
+		if a == nil || b == nil {
+			return a != nil && b == nil // 측정된 것이 먼저
+		}
+		return *a > *b
+	})
+	return out
+}
+
+func appRows(apps []report.App, sortBySize bool) []row {
 	if len(apps) == 0 {
 		return []row{{text: "(없음)"}}
+	}
+	if sortBySize {
+		apps = sortAppsBySize(apps)
 	}
 	rows := make([]row, 0, len(apps))
 	for _, a := range apps {

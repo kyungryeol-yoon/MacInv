@@ -48,7 +48,7 @@ export PATH="$HOME/go/bin:$PATH"
 | `macinv clean <name>` | 삭제 플래너. 앱 · brew formula/cask · **npm 전역 · pipx · cargo · go bin** 지원. **기본 dry-run** — 실제 삭제는 `--apply` + 대화형 확인이 있을 때만. |
 | `macinv update <name>` | 업데이트 플래너. brew formula/cask · npm 전역 · App Store(mas)를 최신으로. `clean`과 같은 렌더러/실행기 공유. **기본 dry-run**, `--apply`로 실행. **`--all`** 이면 업데이트 대기 전부를 일괄로. |
 | `macinv orphans` | **고아 잔여물 역스캔** — 이미 지운 앱들이 `~/Library`에 남긴 데이터를 찾아 정리. Bundle ID 형태 항목만 대상으로 하고, 애플(`com.apple.` 포함·팀ID·systemgroup)·설치 앱 파생물·벤더/공유 프레임워크(Shortcuts, Sparkle)는 보존. **기본 dry-run**, `--apply` + 확인 시 휴지통 이동. |
-| `macinv tui` | 대화형 TUI. `space` 멀티선택 · `d` 삭제 · `u` 업데이트(계획 모달 → 승인, `[확신낮음]`은 체크로 opt-in, GUI 앱은 y/N 재확인) · `r` 재스캔 · `←/→` 탭 · `↑/↓` 이동 · `q` 종료. 실행은 비동기 스트리밍 로그로 표시되고, 완료 후 해당 목록만 자동 갱신. |
+| `macinv tui` | 대화형 TUI. `space` 멀티선택 · `d` 삭제 · `u` 업데이트(계획 모달 → 승인, `[확신낮음]`은 체크로 opt-in, GUI 앱은 y/N 재확인) · `s` 앱 탭 정렬 토글(이름순↔용량순) · `r` 재스캔 · `←/→` 탭 · `↑/↓` 이동 · `q` 종료. 실행은 비동기 스트리밍 로그로 표시되고, 완료 후 해당 목록만 자동 갱신. |
 
 공통 플래그:
 

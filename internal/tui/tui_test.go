@@ -46,7 +46,7 @@ func newTestModel() Model {
 }
 
 func TestBuildTabsRows(t *testing.T) {
-	tabs := buildTabs(sampleReport())
+	tabs := buildTabs(sampleReport(), false)
 	wantTitles := []string{"앱", "brew", "패키지", "런타임", "업데이트", "launchd"}
 	if len(tabs) != len(wantTitles) {
 		t.Fatalf("탭 개수 = %d, want %d", len(tabs), len(wantTitles))
@@ -89,7 +89,7 @@ func TestOutdatedTabCountExcludesPlaceholder(t *testing.T) {
 	rep.Sections.Brew.Formulae[0].Outdated = false
 	rep.Sections.Npm.Packages[0].Outdated = false
 
-	tabs := buildTabs(rep)
+	tabs := buildTabs(rep, false)
 	var updateTab *tab
 	for i := range tabs {
 		if tabs[i].title == "업데이트" {
@@ -354,4 +354,84 @@ func pathInPlan(p *clean.Plan, path string) bool {
 		}
 	}
 	return false
+}
+
+func TestSortAppsBySize(t *testing.T) {
+	apps := []report.App{
+		{Name: "Calculator", SizeKB: report.Ptr(5 * 1024)},
+		// 번들은 작지만 데이터가 커서 합계로는 1위 — 이 정렬의 존재 이유.
+		{Name: "Notion", SizeKB: report.Ptr(283 * 1024), DataSizeKB: report.Ptr(67 * 1024 * 1024)},
+		{Name: "미측정A"}, // 용량 nil
+		{Name: "Xcode", SizeKB: report.Ptr(4 * 1024 * 1024)},
+		{Name: "미측정B"},
+	}
+	got := sortAppsBySize(apps)
+
+	want := []string{"Notion", "Xcode", "Calculator", "미측정A", "미측정B"}
+	for i, w := range want {
+		if got[i].Name != w {
+			t.Errorf("정렬 %d번째 = %s, want %s", i, got[i].Name, w)
+		}
+	}
+	// 원본은 그대로여야 한다 — rep.Sections.Apps는 다른 탭/명령도 공유한다.
+	if apps[0].Name != "Calculator" {
+		t.Errorf("원본이 변경됨: apps[0] = %s", apps[0].Name)
+	}
+}
+
+func TestSortToggleKey(t *testing.T) {
+	m := newTestModel()
+	// sampleReport의 앱은 이름순으로 Godot, iTerm. 용량은 iTerm만 있다.
+	m.rep.Sections.Apps[1].SizeKB = report.Ptr(500 * 1024)
+	m.tabs = buildTabs(m.rep, false)
+
+	if first := m.tabs[0].rows[0].target; first != "Godot" {
+		t.Fatalf("기본은 이름순이어야 함: 첫 행 = %s", first)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = updated.(Model)
+	if !m.sortBySize {
+		t.Fatal("s 키가 sortBySize를 켜지 않음")
+	}
+	if first := m.tabs[0].rows[0].target; first != "iTerm" {
+		t.Errorf("용량순 첫 행 = %s, want iTerm", first)
+	}
+	if m.sel != 0 || m.top != 0 {
+		t.Errorf("정렬 후 커서가 초기화되지 않음: sel=%d top=%d", m.sel, m.top)
+	}
+
+	// 다시 누르면 이름순으로 돌아온다.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = updated.(Model)
+	if m.sortBySize {
+		t.Error("s 키 재입력 시 꺼져야 함")
+	}
+	if first := m.tabs[0].rows[0].target; first != "Godot" {
+		t.Errorf("토글 해제 후 첫 행 = %s, want Godot", first)
+	}
+}
+
+func TestSortToggleKeepsMarks(t *testing.T) {
+	m := newTestModel()
+	m.marked["iTerm"] = true
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = updated.(Model)
+	// marked는 행 인덱스가 아니라 target 이름 기준이라 정렬해도 유지돼야 한다.
+	if got := m.selectedTargets(); len(got) != 1 || got[0] != "iTerm" {
+		t.Errorf("정렬 후 선택이 유실됨: %v", got)
+	}
+}
+
+func TestSortHintOnlyOnAppTab(t *testing.T) {
+	m := newTestModel()
+	if !strings.Contains(m.View(), "s 정렬(이름순)") {
+		t.Error("앱 탭 푸터에 정렬 힌트가 없음")
+	}
+	// brew 탭으로 이동하면 힌트가 사라져야 한다(용량 표시가 없는 탭).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(Model)
+	if strings.Contains(m.View(), "s 정렬") {
+		t.Error("앱 탭이 아닌데 정렬 힌트가 표시됨")
+	}
 }

@@ -85,6 +85,8 @@ type Model struct {
 
 	marked map[string]bool // 멀티선택된 target
 
+	sortBySize bool // 앱 탭 정렬: false=이름순(기본), true=용량순. s 키로 토글.
+
 	mode int
 
 	// 계획 모달 상태
@@ -107,7 +109,7 @@ func New(ctx context.Context, run *iexec.Runner, rep *report.Report, rescan Resc
 	return Model{
 		ctx: ctx, run: run, rescan: rescan, persist: persist, rep: rep,
 		events: make(chan tea.Msg, 128),
-		tabs:   buildTabs(rep),
+		tabs:   buildTabs(rep, false),
 		marked: map[string]bool{},
 	}
 }
@@ -320,6 +322,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buildingVerb = "업데이트"
 			return m, m.buildUpgradePlanCmd(names)
 		}
+	case "s": // 앱 탭 정렬 토글(이름순 ↔ 용량순)
+		m.sortBySize = !m.sortBySize
+		m.tabs = buildTabs(m.rep, m.sortBySize)
+		// 행 순서가 통째로 바뀌므로 커서를 맨 위로 되돌린다(marked는 target 기준이라 유지된다).
+		m.sel, m.top = 0, 0
 	case "r":
 		m.appendLog("전체 재스캔 중…")
 		return m, m.rescanCmd(nil)
@@ -476,7 +483,7 @@ func (m *Model) mergeRescan(fresh *report.Report, sources []string) {
 			m.rep.Sections.Mas = fresh.Sections.Mas
 		}
 	}
-	m.tabs = buildTabs(m.rep)
+	m.tabs = buildTabs(m.rep, m.sortBySize)
 	if m.sel >= len(m.tabs[m.active].rows) {
 		m.sel = len(m.tabs[m.active].rows) - 1
 	}
