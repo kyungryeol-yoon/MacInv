@@ -67,6 +67,9 @@ func collectInventory(ctx context.Context, run *iexec.Runner, rec *iexec.Recorde
 		env := source.CurrentTraceEnv()
 		runtimes = source.ScanRuntimes(ctx, run, env)
 		managers = source.ScanVersionManagers(env)
+		// EOL 배지는 **캐시만** 써서 채운다(offline=true). scan은 자주 도는 경로라
+		// 네트워크 왕복을 얹지 않는다 — 캐시는 `macinv runtimes`가 채운다.
+		source.EnrichEOL(ctx, runtimes, managers, true, time.Now())
 	}
 
 	host, _ := os.Hostname()

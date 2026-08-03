@@ -23,6 +23,8 @@ go install .              # ~/go/bin/macinv 로 설치
 
 `macinv --version`(`-v`)으로 설치된 버전 확인(현재 0.1.0).
 
+`macinv runtimes` 플래그: `--json`, `--offline`(EOL 조회 생략 — 캐시만 사용).
+
 `macinv disk` 플래그: `--json`, `--apply`(정리 실행 — 확인 필요), `--include-expensive`(모델·이미지 포함), `--deep`(오래된 node_modules 탐색), `--quiet`.
 
 `macinv scan` 플래그: `--json`(JSON을 stdout으로), `--no-outdated`(네트워크 최신버전 체크 생략), `--no-sizes`(du 용량 계산 생략 — 앱 번들+데이터 둘 다), `--no-runtimes`(언어 런타임 조회 생략), `--quiet`(요약 생략), `-o PATH`(저장 경로). 결과는 항상 `~/.macinv/inventory.json`에 캐시된다. scan은 설치된 언어 런타임 버전도 요약에 포함한다.
@@ -84,6 +86,14 @@ clean(삭제 계획)이 서로 다른 규칙을 갖게 되는 순간 "보이는 
 2. **outdated** ✅ — brew/npm/mas 업데이트 대기 전용 뷰 (`--json`). `source.OutdatedSources`로 3개 소스만 스캔 후 보강, `report.OutdatedRows`로 행 집계(요약과 공용), `text/tabwriter`로 표 출력.
 3. **trace `<name>`** ✅ — `which -a` 각 경로를 `filepath.EvalSymlinks`로 해소해 소유권 판별. 순수 함수 `source.Classify`(경로만 보고 brew Cellar/Caskroom · npm node_modules · pipx venvs · cargo · go bin · system · manual 판별)로 분리 → runtimes에서 재사용. PATH 첫 경로를 Active(★)로 표시. `--json` 지원.
 4. **runtimes** ✅ — node/python/go/rust/java/ruby/php/dotnet/swift의 활성 버전+경로+관리주체를 병렬 조회. 버전은 `exec.RunCombined`(stdout+stderr 합침, java/swift 대응)로 얻어 `extractVersion`(순수 함수)으로 추출, swift는 `swift-driver` 버전 오인을 막는 전용 정규식 사용. 관리 주체는 `ClassifyManaged`(nvm/pyenv/mise/asdf/rustup/sdkman 경로 우선 → `Classify` 폴백, `TraceManaged` 경유). 서로 다른 실제 경로가 2개 이상이면 `Conflict`로 ⚠️ 표시. 버전 매니저는 `ScanVersionManagers`가 홈 디렉토리 glob(`~/.nvm/versions/node/*` 등)만으로 관리 버전을 열거(외부 명령 없음). `--json` 지원.
+4-1. **runtimes EOL/최신버전**(2026-08-03) — 목적은 **최신 강요가 아니라 판단 근거 제공**이다. 몇 달 만에 어떤 스택으로 돌아왔을 때 "깔려 있나 · 몇 버전인가 · 올려야 하나"에 한 번에 답한다. 로직은 `internal/source/eol.go`, 상태 상수·배지 렌더는 `internal/report/runtimes.go`(report.Runtime의 필드를 해석하는 일이라 거기 둔다. source는 별칭으로 노출).
+   - **조회**: endoflife.date `/api/<product>.json`. `java`/`openjdk` 슬러그는 **404라 없다** — OpenJDK 수명주기의 사실상 기준인 `eclipse-temurin`(Adoptium)을 쓴다. 대상은 python/nodejs/go/eclipse-temurin/ruby/php/rust(dotnet·swift는 제외).
+   - **실패는 에러가 아니다**: 오프라인·조회 실패·캐시 없음이면 **조용히 생략**하고 설치 현황만 보여준다. `~/.macinv/eol-cache.json`에 7일 캐시, `--offline`로 조회 생략(캐시가 있으면 캐시 사용). `scan`/TUI는 **항상 캐시만** 쓴다(`EnrichEOL(..., offline=true, ...)`) — 자주 도는 경로에 네트워크 왕복을 얹지 않는다. 캐시는 `macinv runtimes`가 채운다.
+   - **사이클 매칭은 가장 긴 접두사 일치**(`MatchCycle`): 사이클 자릿수가 제각각이라("3.9" python, "26" node/java, "1.26" go/rust) 짧은 쪽이 먼저 걸리면 오답이 된다("1.2"가 "1.26.5"를 집으면 안 됨).
+   - **업데이트는 세 갈래**(`compareVersions`): `[현재]`/`[안전한 패치 있음]`/`[메이저 최신은 X]`. `LatestVersion`(내 사이클 안의 최신 패치)과 `LatestCycle`(나와 있는 최신 사이클)을 **따로 둔다** — 패치와 메이저는 위험도가 전혀 다르다.
+   - **런타임은 자동 실행 대상이 아니다.** 권장 명령(`SuggestUpgradeCommand`)은 **보여주기만** 한다. TUI 런타임 행은 `target`이 비어 있어 `d`/`u`가 먹지 않는다(`TestRuntimeRowsAreNotActionable`로 고정). 시스템 런타임은 제자리 업그레이드가 안 되므로 "따로 설치"(mise가 있으면 mise, 없으면 brew install)를 권한다.
+   - **`update --all` 경고**(`clean.RuntimeMajorJump`): brew는 node 25→26 같은 점프도 그냥 outdated로 보고해서, 경고가 없으면 `update --all`이 조용히 런타임 메이저를 올려 버린다. **막지는 않되**(사용자가 원할 수 있다) 계획에 경고를 붙인다. "메이저"의 의미는 언어마다 달라 `runtimeCycleParts`로 나눈다: node/openjdk/deno/bun는 1마디(25→26), python/ruby/php는 2마디(3.13→3.14), **go/rust는 호환성 약속이 있어 1.x 안에서는 경고하지 않는다**. `node@22`처럼 고정 버전 포뮬러도 대상이 아니다.
+
 5. **clean `<name>`** ✅ — 삭제 플래너. `internal/clean` 패키지. `BuildPlan`은 **읽기 전용**으로 계획만 만들고, 실제 삭제는 `Execute`(휴지통 이동)를 `--apply` + 대화형 확인(대상 이름 정확 입력) 후에만 호출.
    - **잔여물 탐지는 glob 접두사 매칭**(`bundleGlobs`/`nameGlobs`/`gatherLeftovers`)이라 헬퍼·파생 파일(`<bundleID>.ShipIt`, `<bundleID>.helper.plist` 등)과 Group Containers·Cookies·ByHost·시스템 `/Library`까지 잡는다.
    - **확신도 3단계**: `[확실]`(Bundle ID, `ConfHigh`) / `[확신중간]`(`ConfMedium`, 벤더 폴더 전체) / `[확신낮음]`(`ConfLow`, 이름 기반). `--apply`는 기본적으로 high+medium을 삭제하고 low는 `--include-low` 있을 때만(`Plan.WithoutLowConfidence`가 low만 제거).
@@ -152,6 +162,6 @@ clean(삭제 계획)이 서로 다른 규칙을 갖게 되는 순간 "보이는 
 ## 테스트 관례
 - 파싱 로직마다 테이블 기반 유닛 테스트. 실제 명령 출력 샘플을 `internal/source/testdata/`에 fixture로 저장하고, 파서 함수에 직접 주입해 검증(exec 미실행).
 - 새 소스/커맨드 추가 시 프로토타입 JSON과 구조적으로 diff해 누락 필드가 없는지 확인하는 습관을 유지한다(M1에서 검증한 방식).
-- 안전 판정은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. `paths`: `IsProtected`/`IsAppleSystemApp`/`bundleGlobs`/`nameGlobs`/`DerivedBundleID`/`DedupContained`/`groupContainerMatchesApp`/`LookupVendor`. `clean`: `classifyOrphan`/`matchApps`/`excludeOtherAppIDs`/`ownerOfID`/`splitByWritability`/`ShellQuote`/`ReclaimKB`/`parseDuSizes`. `disk`: `Cleanable`/`IsOrphanCache`/`InstalledTools`/`ExpandGlob`/`ResolvePaths`/`HasAppleComponent`/`GroupUsage`/`BreakdownLine`/`BuildCleanupPlan`/`BuildOllamaPlan`/`ParseOllamaList`/`ParseSnapshots`/`ParseDF`/`SumDuKB`. 파일시스템이 필요한 것(`gatherLeftovers`, `SizePaths`, `MeasureTrashSizes`)은 `t.TempDir()`에 실제 파일을 만들어 검증한다.
+- 안전 판정은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. `paths`: `IsProtected`/`IsAppleSystemApp`/`bundleGlobs`/`nameGlobs`/`DerivedBundleID`/`DedupContained`/`groupContainerMatchesApp`/`LookupVendor`. `clean`: `classifyOrphan`/`matchApps`/`excludeOtherAppIDs`/`ownerOfID`/`splitByWritability`/`ShellQuote`/`ReclaimKB`/`parseDuSizes`. `source`(EOL): `MatchCycle`/`normalizeVersion`/`eolDateStatus`/`compareVersions`/`SuggestUpgradeCommand`/`applyEOL`, `report`: `EOLBadge`/`UpdateBadge`. `clean`: `RuntimeMajorJump`/`cyclePrefix`. `disk`: `Cleanable`/`IsOrphanCache`/`InstalledTools`/`ExpandGlob`/`ResolvePaths`/`HasAppleComponent`/`GroupUsage`/`BreakdownLine`/`BuildCleanupPlan`/`BuildOllamaPlan`/`ParseOllamaList`/`ParseSnapshots`/`ParseDF`/`SumDuKB`. 파일시스템이 필요한 것(`gatherLeftovers`, `SizePaths`, `MeasureTrashSizes`)은 `t.TempDir()`에 실제 파일을 만들어 검증한다.
 - 실기에서 오탐/오탐지가 나오면 반드시 회귀 테스트로 고정한다(orphans의 `orphanProtected`, 6-1의 `TestLeftoversDoNotSwallowOtherApp`, 6-4의 `TestDedupContained`가 그 예).
 - **리팩터링은 출력 diff로 검증한다**: 동작이 바뀌면 안 되는 변경(6-3 같은 레이어 이동)은 리팩터 전 바이너리를 `git worktree`로 빌드해 두고 `scan --json`/`clean` dry-run/`orphans` 출력을 diff한다. 용량(`size_kb`/`data_size_kb`)과 `generated_at`은 실행마다 달라지므로 비교에서 뺀다.

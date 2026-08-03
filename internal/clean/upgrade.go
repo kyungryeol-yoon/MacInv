@@ -77,6 +77,58 @@ func npmUpgradeTarget(name string) Target {
 	return t
 }
 
+// runtimeCycleParts는 런타임별로 "이게 바뀌면 깨질 수 있다"에 해당하는 버전 마디 수다.
+// 언어마다 메이저의 의미가 달라 하나로 못 묶는다:
+//   - node/openjdk/deno/bun (1): 25→26이 메이저. 네이티브 모듈·API 제거로 실제로 깨진다.
+//   - python/ruby/php (2): 3.13→3.14가 릴리스 사이클. venv·gem·확장 모듈이 깨진다.
+//   - go/rust (1): 1.26→1.27은 호환성 약속이 있어 깨지지 않는다 — 1.x 안에서는 경고하지 않는다.
+//
+// 여기 없는 포뮬러는 런타임이 아니므로 경고 대상이 아니다(소음 방지).
+var runtimeCycleParts = map[string]int{
+	"node": 1, "openjdk": 1, "deno": 1, "bun": 1,
+	"go": 1, "rust": 1,
+	"python": 2, "ruby": 2, "php": 2,
+}
+
+// RuntimeMajorJump는 런타임이 깨질 수 있는 폭으로 올라가는지 본다(순수 함수 — 테이블 테스트 대상).
+// brew는 node 25→26 같은 점프도 그냥 outdated로 보고하므로, update --all이 아무 경고 없이
+// 실행해 버리면 안 된다. **막지는 않되**(사용자가 원할 수 있다) 반드시 알린다.
+// 이름에 @가 붙은 고정 버전 포뮬러(node@22)는 메이저가 고정돼 있어 대상이 아니다.
+func RuntimeMajorJump(name, current, latest string) bool {
+	parts, ok := runtimeCycleParts[strings.ToLower(name)]
+	if !ok || strings.Contains(name, "@") {
+		return false
+	}
+	c, l := cyclePrefix(current, parts), cyclePrefix(latest, parts)
+	return c != "" && l != "" && c != l
+}
+
+// cyclePrefix는 버전에서 앞 n개의 숫자 마디를 돌려준다(순수 함수). ("25.9.0_2", 1) → "25".
+func cyclePrefix(v string, n int) string {
+	v = strings.TrimLeft(v, "v")
+	var out []string
+	for _, part := range strings.Split(v, ".") {
+		num := ""
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				break
+			}
+			num += string(r)
+		}
+		if num == "" {
+			break
+		}
+		out = append(out, num)
+		if len(out) == n {
+			break
+		}
+	}
+	if len(out) < n {
+		return ""
+	}
+	return strings.Join(out, ".")
+}
+
 // UpgradePlanFromOutdated는 outdated 목록에서 곧장 일괄 업데이트 계획을 만든다(순수 함수 — 테스트 대상).
 // 각 행의 소스를 이미 알므로 설치 여부 프로브가 필요 없다(update --all 경로, 빠름).
 func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
@@ -84,11 +136,16 @@ func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
 	for _, r := range rows {
 		switch r.Source {
 		case "brew":
-			plan.Targets = append(plan.Targets, Target{
+			t := Target{
 				Kind: KindBrewFormula, Name: r.Name,
 				Argv:          [][]string{{"brew", "upgrade", r.Name}},
 				CmdTimeoutSec: upgradeTimeoutSec,
-			})
+			}
+			if RuntimeMajorJump(r.Name, r.Current, r.Latest) {
+				t.Warnings = append(t.Warnings,
+					"런타임 메이저 업그레이드입니다("+r.Current+" → "+r.Latest+") — 프로젝트가 깨질 수 있습니다. 자세히: macinv runtimes")
+			}
+			plan.Targets = append(plan.Targets, t)
 		case "cask":
 			plan.Targets = append(plan.Targets, Target{
 				Kind: KindBrewCask, Name: r.Name,

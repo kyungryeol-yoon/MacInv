@@ -44,7 +44,7 @@ export PATH="$HOME/go/bin:$PATH"
 | `macinv scan` | 전체 인벤토리 스캔 → 한국어 요약. 앱·brew·npm·pipx·cargo·mas·go bin·launchd + **설치된 언어 런타임 버전**까지. `~/.macinv/inventory.json`에 캐시. |
 | `macinv outdated` | brew/npm/mas 업데이트 대기 목록 (현재 → 최신). |
 | `macinv trace <name>` | 바이너리 소유권 역추적. `which -a`의 각 경로를 심볼릭 링크 따라가 brew/npm/cargo/pipx/go/시스템/수동 중 무엇인지 판별. |
-| `macinv runtimes` | node/python/go/rust/java/ruby/php/dotnet/swift의 활성 버전·경로·관리 주체 + 버전 매니저(nvm/pyenv/mise/asdf/rustup/sdkman)가 관리 중인 버전. |
+| `macinv runtimes` | node/python/go/rust/java/ruby/php/dotnet/swift의 활성 버전·경로·관리 주체 + 버전 매니저가 관리 중인 버전. **지원 종료(EOL)** 를 endoflife.date로 조회해 `[EOL 지남]`/`[N개월 뒤 종료]`/`[지원 중]`, 업데이트는 `[현재]`/`[안전한 패치 있음]`/`[메이저 최신은 X]`로 표시. 올릴 명령을 **보여주기만** 하고 실행하지 않는다(런타임 메이저는 프로젝트를 깨뜨린다). 7일 캐시, `--offline`로 조회 생략. |
 | `macinv clean <name>` | 삭제 플래너. 앱 · brew formula/cask · **npm 전역 · pipx · cargo · go bin** 지원. **기본 dry-run** — 실제 삭제는 `--apply` + 대화형 확인이 있을 때만. |
 | `macinv update <name>` | 업데이트 플래너. brew formula/cask · npm 전역 · App Store(mas)를 최신으로. `clean`과 같은 렌더러/실행기 공유. **기본 dry-run**, `--apply`로 실행. **`--all`** 이면 업데이트 대기 전부를 일괄로. |
 | `macinv orphans` | **고아 잔여물 역스캔** — 이미 지운 앱들이 `~/Library`에 남긴 데이터를 찾아 정리. Bundle ID 형태 항목만 대상으로 하고, 애플(`com.apple.` 포함·팀ID·systemgroup)·설치 앱 파생물·벤더/공유 프레임워크(Shortcuts, Sparkle)는 보존. **기본 dry-run**, `--apply` + 확인 시 휴지통 이동. |
@@ -65,7 +65,8 @@ macinv scan                 # 전체 스캔 + 요약
 macinv scan --json -o out.json
 macinv outdated             # 업데이트 대기만
 macinv trace git            # git이 어디서 왔는지
-macinv runtimes             # 언어별 버전/관리 주체
+macinv runtimes             # 언어별 버전/관리 주체 + 지원 종료(EOL)
+macinv runtimes --offline   # 네트워크 조회 없이 캐시만
 macinv clean godot          # 삭제 계획만 출력(dry-run)
 macinv clean godot --apply  # 확인 후 실제 삭제(휴지통 이동)
 macinv update git           # git 업데이트 계획(dry-run)

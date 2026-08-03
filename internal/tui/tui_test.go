@@ -590,3 +590,23 @@ func TestDiskTabShowsOrphanBadge(t *testing.T) {
 		t.Errorf("회수 가능량 요약이 없음:\n%s", view)
 	}
 }
+
+// 런타임 행은 삭제/업데이트 대상이 아니어야 한다.
+// 런타임 메이저 업그레이드는 프로젝트를 깨뜨리므로 자동 실행 경로에 절대 들어가면 안 된다.
+func TestRuntimeRowsAreNotActionable(t *testing.T) {
+	m := newTestModel()
+	var runtimeTab int = -1
+	for i, tb := range m.tabs {
+		if tb.title == "런타임" {
+			runtimeTab = i
+		}
+	}
+	if runtimeTab < 0 {
+		t.Fatal("런타임 탭이 없음")
+	}
+	for _, r := range m.tabs[runtimeTab].rows {
+		if r.target != "" {
+			t.Errorf("런타임 행이 삭제/업데이트 대상이 됨: %q (target=%q)", r.text, r.target)
+		}
+	}
+}

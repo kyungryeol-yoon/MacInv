@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 )
 
 // HumanSize는 KB를 사람이 읽기 쉬운 단위로 바꾼다.
@@ -157,6 +158,7 @@ func printRuntimeSummary(w io.Writer, line string, runtimes []Runtime, managers 
 		return
 	}
 	fmt.Fprintf(w, "\n%s\n 🧰 개발 런타임 (설치된 언어)\n%s\n", line, line)
+	now := time.Now()
 	for _, rt := range installed {
 		ver := rt.Version
 		if ver == "" {
@@ -170,7 +172,12 @@ func printRuntimeSummary(w io.Writer, line string, runtimes []Runtime, managers 
 		if rt.Conflict {
 			conflict = "  ⚠️ 여러 경로"
 		}
-		fmt.Fprintf(w, "  %-8s %-10s [%s]%s\n", rt.Name, ver, mgr, conflict)
+		// EOL/업데이트 배지는 캐시가 있을 때만 채워진다(자세히·최신화: macinv runtimes).
+		badges := strings.TrimSpace(EOLBadge(rt.EOLStatus, rt.EOLDate, now) + " " + UpdateBadge(rt.UpdateStatus, rt.LatestCycle))
+		if badges != "" {
+			badges = "  " + badges
+		}
+		fmt.Fprintf(w, "  %-8s %-10s [%s]%s%s\n", rt.Name, ver, mgr, conflict, badges)
 	}
 	if len(managers) > 0 {
 		var names []string

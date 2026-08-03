@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
 	"github.com/kyungryeol-yoon/macinv/internal/disk"
@@ -431,7 +432,15 @@ func runtimeRows(runtimes []report.Runtime, managers []report.VersionManager) []
 		if rt.Conflict {
 			conflict = warnStyle.Render("  ⚠️ 여러 경로")
 		}
-		rows = append(rows, row{text: fmt.Sprintf("%-8s %-10s [%s]%s", rt.Name, ver, mgr, conflict)})
+		// EOL이 지났으면 눈에 띄어야 한다 — "몇 달 만에 돌아왔을 때"의 핵심 신호다.
+		eol := report.EOLBadge(rt.EOLStatus, rt.EOLDate, time.Now())
+		if rt.EOLStatus == report.EOLPassed || rt.EOLStatus == report.EOLSoon {
+			eol = warnStyle.Render(eol)
+		} else if eol != "" {
+			eol = dimStyle.Render(eol)
+		}
+		upd := dimStyle.Render(report.UpdateBadge(rt.UpdateStatus, rt.LatestCycle))
+		rows = append(rows, row{text: fmt.Sprintf("%-8s %-10s [%s]%s  %s %s", rt.Name, ver, mgr, conflict, eol, upd)})
 	}
 	if len(managers) > 0 {
 		rows = append(rows, row{text: warnStyle.Render("── 버전 매니저 ──")})
