@@ -261,6 +261,10 @@ func diskRows(dres *disk.Result) []row {
 				dimStyle.Render(trunc(e.Tool, 12)), tag),
 			target: diskTargetPrefix + e.ID,
 		})
+		// 와일드카드 위치는 앱별 내역을 한 줄 더 보여준다(어느 앱이 먹고 있는지가 판단 근거다).
+		if line := disk.BreakdownLine(e.Breakdown, 5); line != "" {
+			rows = append(rows, row{text: "            " + dimStyle.Render("↳ "+trunc(line, 70))})
+		}
 	}
 	total, reclaim := dres.TotalKB, dres.ReclaimableKB
 	rows = append(rows,

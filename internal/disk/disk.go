@@ -75,9 +75,16 @@ type Location struct {
 	// Cleanup은 정리에 쓸 네이티브 명령이다(rm 아님). 비어 있으면 리포트 전용.
 	Cleanup [][]string `json:"cleanup,omitempty"`
 	// Trash는 네이티브 명령이 없어 휴지통 이동으로 정리하는 위치다(DerivedData 등).
-	Trash bool   `json:"trash,omitempty"`
-	Note  string `json:"note,omitempty"`
+	Trash bool `json:"trash,omitempty"`
+	// GroupBy는 와일드카드 위치를 무엇 단위로 쪼개 보여줄지다("" = 쪼개지 않음).
+	// 지금은 "app-support-dir"만 지원한다: ~/Library/Application Support/<앱>/... 의 <앱> 단위.
+	// 한 항목에 66GB라고만 뜨면 어느 앱을 손봐야 할지 판단할 수 없어서 필요하다.
+	GroupBy string `json:"group_by,omitempty"`
+	Note    string `json:"note,omitempty"`
 }
+
+// GroupBy 값.
+const GroupByAppSupportDir = "app-support-dir"
 
 type locationTable struct {
 	Locations []Location `json:"locations"`
@@ -115,7 +122,7 @@ func ResolvePaths(home string, locs []Location) map[string][]string {
 	for _, l := range locs {
 		for _, g := range l.Globs {
 			for _, m := range ExpandGlob(home, g) {
-				if paths.IsProtected(m) {
+				if paths.IsProtected(m) || HasAppleComponent(m) {
 					continue
 				}
 				if _, dup := owner[m]; dup {
@@ -131,6 +138,64 @@ func ResolvePaths(home string, locs []Location) map[string][]string {
 		id := owner[m.Path]
 		out[id] = append(out[id], m.Path)
 	}
+	return out
+}
+
+// HasAppleComponent는 경로에 com.apple.* 디렉토리가 끼어 있는지 본다(순수 함수 — 테스트 대상).
+// 와일드카드 위치(~/Library/Application Support/*/Cache)가 애플 기본 앱 데이터를 삼키는 걸 막는다.
+// paths.IsProtected는 경로 접두사 블랙리스트라 ~/Library 아래의 애플 데이터는 못 걸러낸다.
+func HasAppleComponent(path string) bool {
+	for _, part := range strings.Split(path, string(filepath.Separator)) {
+		if strings.HasPrefix(part, "com.apple.") {
+			return true
+		}
+	}
+	return false
+}
+
+// Usage는 위치 안에서 무엇이 얼마를 쓰는지 한 줄이다(앱별 내역).
+type Usage struct {
+	Name   string `json:"name"`
+	SizeKB int    `json:"size_kb"`
+}
+
+// appSupportDirName은 ~/Library/Application Support/<앱>/... 경로에서 <앱>을 뽑는다(순수 함수).
+// 그 아래가 아니면 ""(그룹 없음).
+func appSupportDirName(home, path string) string {
+	base := filepath.Join(home, "Library", "Application Support") + string(filepath.Separator)
+	rest, ok := strings.CutPrefix(path, base)
+	if !ok || rest == "" {
+		return ""
+	}
+	if i := strings.Index(rest, string(filepath.Separator)); i > 0 {
+		return rest[:i]
+	}
+	return rest
+}
+
+// GroupUsage는 경로별 용량을 groupBy 기준으로 묶어 용량순으로 돌려준다(순수 함수 — 테스트 대상).
+// groupBy가 비었거나 알 수 없으면 nil(내역 없음).
+func GroupUsage(home, groupBy string, sizes map[string]int) []Usage {
+	if groupBy != GroupByAppSupportDir {
+		return nil
+	}
+	byName := map[string]int{}
+	for path, kb := range sizes {
+		if name := appSupportDirName(home, path); name != "" {
+			byName[name] += kb
+		}
+	}
+	out := make([]Usage, 0, len(byName))
+	for name, kb := range byName {
+		out = append(out, Usage{Name: name, SizeKB: kb})
+	}
+	// 용량 내림차순, 같으면 이름순(출력이 실행마다 흔들리지 않게).
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SizeKB != out[j].SizeKB {
+			return out[i].SizeKB > out[j].SizeKB
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 

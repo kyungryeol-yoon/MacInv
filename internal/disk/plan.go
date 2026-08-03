@@ -44,11 +44,13 @@ func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive bo
 		}
 		t.Argv = append(t.Argv, e.Cleanup...)
 		if e.Trash {
-			// 네이티브 명령이 없는 위치(DerivedData 등)는 휴지통 이동으로 정리한다 — rm은 쓰지 않는다.
+			// 네이티브 명령이 없는 위치(DerivedData, Electron 캐시 등)는 휴지통 이동으로 정리한다 — rm은 쓰지 않는다.
+			// 용량은 **경로마다 제 값**을 실어야 한다. 위치 합계를 경로마다 넣으면
+			// 경로가 N개일 때 회수 예상이 N배로 부풀려진다(Electron 캐시는 앱마다 4개씩 잡힌다).
 			for _, p := range e.Paths {
 				t.TrashPaths = append(t.TrashPaths, clean.PathMatch{
-					Path: p, Confidence: clean.ConfHigh, Reason: e.Name + " (빌드 산출물 · 재생성됨)",
-					SizeKB: e.SizeKB,
+					Path: p, Confidence: clean.ConfHigh, Reason: e.Name + " (재생성됨)",
+					SizeKB: e.PathSizes[p],
 				})
 			}
 			t.Suggestions = append(t.Suggestions,

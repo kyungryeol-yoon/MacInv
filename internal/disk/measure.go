@@ -25,10 +25,18 @@ type Entry struct {
 	Paths  []string `json:"paths"`
 	SizeKB int      `json:"size_kb"`
 	// Orphan은 캐시는 있는데 그 도구가 인벤토리에 없다는 뜻이다(지울 이유가 가장 확실한 항목).
-	Orphan  bool       `json:"orphan"`
-	Cleanup [][]string `json:"cleanup,omitempty"`
-	Trash   bool       `json:"trash,omitempty"`
-	Note    string     `json:"note,omitempty"`
+	Orphan bool `json:"orphan"`
+	// PathSizes는 경로별 용량이다. 합계만 두면 안 되는 이유가 둘 있다:
+	// ① 휴지통 계획을 만들 때 경로마다 제 용량을 실어야 회수 예상이 안 부풀려진다,
+	// ② 와일드카드 위치의 앱별 내역(Breakdown)을 낼 수 없다.
+	PathSizes map[string]int `json:"path_sizes,omitempty"`
+	// Breakdown은 GroupBy가 있는 위치의 내역이다(용량순). 없으면 nil.
+	Breakdown []Usage    `json:"breakdown,omitempty"`
+	Cleanup   [][]string `json:"cleanup,omitempty"`
+	Trash     bool       `json:"trash,omitempty"`
+	Note      string     `json:"note,omitempty"`
+
+	groupBy string // 측정 후 Breakdown을 만들 때만 쓰는 내부 값(JSON에 안 나감)
 }
 
 // Result는 disk 커맨드의 전체 결과다.
@@ -58,7 +66,8 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 		entries = append(entries, Entry{
 			ID: l.ID, Name: l.Name, Tool: l.Tool, Tier: l.Tier,
 			Paths: ps, Cleanup: l.Cleanup, Trash: l.Trash, Note: l.Note,
-			Orphan: installedTools != nil && IsOrphanCache(l, installedTools),
+			Orphan:  installedTools != nil && IsOrphanCache(l, installedTools),
+			groupBy: l.GroupBy,
 		})
 	}
 
@@ -67,7 +76,12 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 	g.SetLimit(measureWorkers)
 	for i := range entries {
 		g.Go(func() error {
-			entries[i].SizeKB = duKB(gctx, run, entries[i].Paths)
+			sizes := duSizes(gctx, run, entries[i].Paths)
+			entries[i].PathSizes = sizes
+			for _, kb := range sizes {
+				entries[i].SizeKB += kb
+			}
+			entries[i].Breakdown = GroupUsage(home, entries[i].groupBy, sizes)
 			return nil // 개별 실패는 0KB로 두고 전체를 멈추지 않는다
 		})
 	}
@@ -88,17 +102,17 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 	return res
 }
 
-// duKB는 경로들의 KB 합계를 구한다(du -sk 1회).
-func duKB(ctx context.Context, run *iexec.Runner, ps []string) int {
+// duSizes는 경로별 KB를 구한다(du -sk 1회, 프로세스 스폰 절약).
+func duSizes(ctx context.Context, run *iexec.Runner, ps []string) map[string]int {
 	if len(ps) == 0 {
-		return 0
+		return nil
 	}
 	args := append([]string{"-sk"}, ps...)
 	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: duTimeoutSec}, "du", args...)
 	if err != nil {
-		return 0
+		return nil
 	}
-	return SumDuKB(out)
+	return parseDuLines(out)
 }
 
 // SumDuKB는 `du -sk a b c` 출력의 KB 합계를 낸다(순수 함수 — 테스트 대상).

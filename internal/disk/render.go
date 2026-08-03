@@ -25,6 +25,10 @@ func PrintSummary(w io.Writer, res *Result, includeExpensive bool) {
 		}
 		fmt.Fprintf(w, "  %9s  %-16s %-34s %s%s\n",
 			report.HumanSize(&e.SizeKB), TierLabel(e.Tier), trim(e.Name, 34), trim(e.Tool, 12), orphan)
+		// 와일드카드 위치는 "한 항목에 66GB"로만 보이면 어느 앱을 손봐야 할지 알 수 없다.
+		if line := BreakdownLine(e.Breakdown, 5); line != "" {
+			fmt.Fprintf(w, "             ↳ %s\n", line)
+		}
 	}
 
 	fmt.Fprintf(w, "\n  %-28s %s\n", "합계", report.HumanSize(&res.TotalKB))
@@ -101,6 +105,27 @@ func printSnapshots(w io.Writer, line string, snap *SnapshotReport) {
 		report.HumanSize(&snap.UsedKB), report.HumanSize(&snap.AvailKB))
 	fmt.Fprintf(w, "  macinv는 스냅샷을 삭제하지 않습니다 — 백업 복원 지점이라 직접 판단하세요:\n")
 	fmt.Fprintf(w, "    tmutil deletelocalsnapshots <날짜>   (보통은 며칠 뒤 자동으로 정리됩니다)\n")
+}
+
+// BreakdownLine은 앱별 내역을 "Notion 41.0 GB · Slack 3.0 GB" 한 줄로 만든다(순수 함수 — 테스트 대상).
+// 상위 n개만 보여주고 나머지는 "외 N개"로 접는다.
+func BreakdownLine(usage []Usage, n int) string {
+	if len(usage) == 0 {
+		return ""
+	}
+	shown := usage
+	if n > 0 && len(shown) > n {
+		shown = shown[:n]
+	}
+	parts := make([]string, 0, len(shown)+1)
+	for _, u := range shown {
+		kb := u.SizeKB
+		parts = append(parts, u.Name+" "+report.HumanSize(&kb))
+	}
+	if rest := len(usage) - len(shown); rest > 0 {
+		parts = append(parts, fmt.Sprintf("외 %d개", rest))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func trim(s string, max int) string {

@@ -21,7 +21,7 @@ func sampleResult() *Result {
 		{ID: "orbstack", Name: "OrbStack", Tool: "orbstack", Tier: TierExpensive, SizeKB: 26 * 1024 * 1024,
 			Paths: []string{"/h/gc/orbstack"}, Cleanup: [][]string{{"docker", "system", "prune", "-f"}}},
 		{ID: "deriveddata", Name: "Xcode DerivedData", Tool: "xcodebuild", Tier: TierArtifact, SizeKB: 139 * 1024,
-			Paths: []string{"/h/dd"}, Trash: true},
+			Paths: []string{"/h/dd"}, Trash: true, PathSizes: map[string]int{"/h/dd": 139 * 1024}},
 		{ID: "user-data", Name: "사용자 데이터", Tool: "x", Tier: TierNever, SizeKB: 100,
 			Paths: []string{"/h/data"}, Cleanup: [][]string{{"rm", "-rf", "/h/data"}}},
 		{ID: "gradle", Name: "Gradle 캐시", Tool: "gradle", Tier: TierSafe, SizeKB: 3 * 1024 * 1024,
@@ -193,5 +193,32 @@ func TestCleanupPlanReclaimIncludesCommandTargets(t *testing.T) {
 	}
 	if clean.ReclaimLine(only, nil) == "" {
 		t.Error("명령 전용 계획인데 회수 예상 줄이 비었음")
+	}
+}
+
+// 회귀: trash 위치의 경로가 여러 개일 때 회수 예상이 N배로 부풀려지면 안 된다.
+// 예전에는 경로마다 **위치 합계**를 실어서, Electron 캐시처럼 앱당 4개씩 잡히는 위치는
+// 1 GB를 9 GB로 보고했다. 경로마다 제 용량을 실어야 한다.
+func TestTrashPathsCarryOwnSize(t *testing.T) {
+	res := &Result{Entries: []Entry{{
+		ID: "electron-cache", Name: "Electron 앱 캐시", Tier: TierSafe, Trash: true,
+		Paths:  []string{"/h/AS/Notion/Cache", "/h/AS/Notion/GPUCache", "/h/AS/Slack/Cache"},
+		SizeKB: 1000,
+		PathSizes: map[string]int{
+			"/h/AS/Notion/Cache":    700,
+			"/h/AS/Notion/GPUCache": 100,
+			"/h/AS/Slack/Cache":     200,
+		},
+	}}}
+	plan := BuildCleanupPlan(res, nil, false)
+
+	for _, pm := range plan.Targets[0].TrashPaths {
+		if pm.SizeKB != res.Entries[0].PathSizes[pm.Path] {
+			t.Errorf("%s 용량 = %d KB, want %d", pm.Path, pm.SizeKB, res.Entries[0].PathSizes[pm.Path])
+		}
+	}
+	kb, ok := clean.ReclaimKB(plan, nil)
+	if !ok || kb != 1000 {
+		t.Errorf("회수 예상 = %d KB, want 1000 (위치 합계와 같아야 함 — 경로 수만큼 부풀면 3000)", kb)
 	}
 }
