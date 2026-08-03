@@ -71,3 +71,51 @@ func TestRuntimeMajorJump(t *testing.T) {
 		t.Errorf("hugo에 불필요한 경고: %v", plan.Targets[1].Warnings)
 	}
 }
+
+// --all은 "생각 없이 실행하는 명령"이라 프로젝트를 깨뜨릴 수 있는 건 들어가면 안 된다.
+// 런타임 메이저는 목록에만 남기고 실행 대상에서 뺀다. 패치는 그대로 포함한다.
+func TestSplitRuntimeMajors(t *testing.T) {
+	rows := []report.OutdatedRow{
+		{Source: "brew", Name: "node", Current: "25.9.0_2", Latest: "26.5.1"},    // 메이저 → 보류
+		{Source: "brew", Name: "node@22", Current: "22.22.2", Latest: "22.23.2"}, // 고정 버전 → 실행
+		{Source: "brew", Name: "go", Current: "1.26.5", Latest: "1.27.0"},        // go는 1.x 호환 → 실행
+		{Source: "brew", Name: "hugo", Current: "0.163.0", Latest: "0.164.0"},    // 런타임 아님 → 실행
+		{Source: "npm", Name: "eas-cli", Current: "1.0.0", Latest: "2.0.0"},      // brew 아님 → 실행
+		{Source: "brew", Name: "python", Current: "3.13.1", Latest: "3.14.0"},    // 메이저 → 보류
+	}
+	auto, held := SplitRuntimeMajors(rows)
+
+	heldNames := map[string]bool{}
+	for _, r := range held {
+		heldNames[r.Name] = true
+	}
+	if len(held) != 2 || !heldNames["node"] || !heldNames["python"] {
+		t.Errorf("보류 목록 = %v, want [node python]", heldNames)
+	}
+	autoNames := map[string]bool{}
+	for _, r := range auto {
+		autoNames[r.Name] = true
+	}
+	for _, want := range []string{"node@22", "go", "hugo", "eas-cli"} {
+		if !autoNames[want] {
+			t.Errorf("%s가 일괄 실행 대상에서 빠짐: %v", want, autoNames)
+		}
+	}
+	if autoNames["node"] || autoNames["python"] {
+		t.Errorf("런타임 메이저가 일괄 실행 대상에 들어감 — --all이 프로젝트를 깨뜨릴 수 있다: %v", autoNames)
+	}
+
+	// 계획에도 들어가면 안 된다.
+	plan := UpgradePlanFromOutdated(auto)
+	for _, tgt := range plan.Targets {
+		if tgt.Name == "node" || tgt.Name == "python" {
+			t.Errorf("계획에 런타임 메이저 타깃이 있음: %s", tgt.Name)
+		}
+	}
+
+	// 빈 입력에도 안전.
+	a, h := SplitRuntimeMajors(nil)
+	if len(a) != 0 || len(h) != 0 {
+		t.Errorf("빈 입력인데 결과가 있음: %v %v", a, h)
+	}
+}

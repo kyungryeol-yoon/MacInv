@@ -71,7 +71,11 @@ type Location struct {
 	Globs []string `json:"globs"` // ~ 로 시작하면 홈 기준
 	// Tool은 이 위치를 만든 도구다. 인벤토리에 없으면 [고아 캐시]로 표시한다.
 	Tool string `json:"tool"`
-	Tier string `json:"tier"`
+	// OwnerApps는 CLI 도구가 없어도 이 캐시를 쓰는 **GUI 앱**들이다.
+	// 예: gradle CLI를 안 깔아도 Android Studio는 ~/.gradle을 쓴다. 이게 없으면
+	// "gradle 미설치 + Android Studio 설치" 상태에서 멀쩡한 캐시를 고아로 오탐한다.
+	OwnerApps []string `json:"owner_apps,omitempty"`
+	Tier      string   `json:"tier"`
 	// Cleanup은 정리에 쓸 네이티브 명령이다(rm 아님). 비어 있으면 리포트 전용.
 	Cleanup [][]string `json:"cleanup,omitempty"`
 	// Trash는 네이티브 명령이 없어 휴지통 이동으로 정리하는 위치다(DerivedData 등).

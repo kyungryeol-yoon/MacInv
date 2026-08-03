@@ -3,7 +3,9 @@
     {
       "id": "ollama-models",
       "name": "Ollama 모델",
-      "globs": ["~/.ollama/models"],
+      "globs": [
+        "~/.ollama/models"
+      ],
       "tool": "ollama",
       "tier": "expensive",
       "note": "모델은 개별 삭제가 안전합니다: macinv disk --apply가 ollama list로 모델별 용량을 보여줍니다."
@@ -11,7 +13,10 @@
     {
       "id": "huggingface-cache",
       "name": "Hugging Face 모델 캐시",
-      "globs": ["~/.cache/huggingface", "~/Library/Caches/huggingface"],
+      "globs": [
+        "~/.cache/huggingface",
+        "~/Library/Caches/huggingface"
+      ],
       "tool": "huggingface-cli",
       "tier": "expensive",
       "note": "재다운로드가 수 GB입니다. 선택 삭제는 huggingface-cli delete-cache(대화형)를 쓰세요."
@@ -19,27 +24,59 @@
     {
       "id": "lmstudio",
       "name": "LM Studio 모델",
-      "globs": ["~/.lmstudio", "~/.cache/lm-studio"],
+      "globs": [
+        "~/.lmstudio",
+        "~/.cache/lm-studio"
+      ],
       "tool": "lms",
+      "owner_apps": [
+        "LM Studio"
+      ],
       "tier": "expensive",
       "note": "네이티브 정리 명령이 없습니다 — LM Studio 앱에서 모델을 지우세요."
     },
     {
       "id": "orbstack-data",
       "name": "OrbStack 데이터 (컨테이너/VM 디스크)",
-      "globs": ["~/Library/Group Containers/*.dev.orbstack", "~/.orbstack"],
+      "globs": [
+        "~/Library/Group Containers/*.dev.orbstack",
+        "~/.orbstack"
+      ],
       "tool": "orbstack",
+      "owner_apps": [
+        "OrbStack"
+      ],
       "tier": "expensive",
-      "cleanup": [["docker", "system", "prune", "-f"]],
+      "cleanup": [
+        [
+          "docker",
+          "system",
+          "prune",
+          "-f"
+        ]
+      ],
       "note": "디스크 이미지 안에 컨테이너·볼륨·빌드 캐시가 들어 있습니다. prune은 중지된 컨테이너와 빌드 캐시를 지웁니다(볼륨은 유지)."
     },
     {
       "id": "docker-data",
       "name": "Docker Desktop 디스크 이미지",
-      "globs": ["~/Library/Containers/com.docker.docker/Data/vms"],
+      "globs": [
+        "~/Library/Containers/com.docker.docker/Data/vms"
+      ],
       "tool": "docker",
+      "owner_apps": [
+        "Docker",
+        "Docker Desktop"
+      ],
       "tier": "expensive",
-      "cleanup": [["docker", "system", "prune", "-f"]],
+      "cleanup": [
+        [
+          "docker",
+          "system",
+          "prune",
+          "-f"
+        ]
+      ],
       "note": "prune은 중지된 컨테이너·미사용 네트워크·dangling 이미지·빌드 캐시를 지웁니다(볼륨은 유지)."
     },
     {
@@ -60,80 +97,156 @@
     {
       "id": "npm-cache",
       "name": "npm 캐시",
-      "globs": ["~/.npm/_cacache"],
+      "globs": [
+        "~/.npm/_cacache"
+      ],
       "tool": "npm",
       "tier": "safe",
-      "cleanup": [["npm", "cache", "clean", "--force"]]
+      "cleanup": [
+        [
+          "npm",
+          "cache",
+          "clean",
+          "--force"
+        ]
+      ]
     },
     {
       "id": "pnpm-store",
       "name": "pnpm 스토어",
-      "globs": ["~/Library/pnpm/store", "~/.pnpm-store"],
+      "globs": [
+        "~/Library/pnpm/store",
+        "~/.pnpm-store"
+      ],
       "tool": "pnpm",
       "tier": "safe",
-      "cleanup": [["pnpm", "store", "prune"]]
+      "cleanup": [
+        [
+          "pnpm",
+          "store",
+          "prune"
+        ]
+      ]
     },
     {
       "id": "cargo-registry",
       "name": "cargo 레지스트리 캐시",
-      "globs": ["~/.cargo/registry"],
+      "globs": [
+        "~/.cargo/registry"
+      ],
       "tool": "cargo",
+      "owner_apps": [
+        "RustRover"
+      ],
       "tier": "safe",
       "note": "네이티브 정리 명령이 없습니다(cargo-cache 크레이트가 필요). 지우면 다음 빌드에서 다시 받습니다."
     },
     {
       "id": "go-modcache",
       "name": "Go 모듈 캐시",
-      "globs": ["~/go/pkg/mod"],
+      "globs": [
+        "~/go/pkg/mod"
+      ],
       "tool": "go",
       "tier": "safe",
-      "cleanup": [["go", "clean", "-modcache"]]
+      "cleanup": [
+        [
+          "go",
+          "clean",
+          "-modcache"
+        ]
+      ]
     },
     {
       "id": "go-buildcache",
       "name": "Go 빌드 캐시",
-      "globs": ["~/Library/Caches/go-build"],
+      "globs": [
+        "~/Library/Caches/go-build"
+      ],
       "tool": "go",
       "tier": "safe",
-      "cleanup": [["go", "clean", "-cache"]]
+      "cleanup": [
+        [
+          "go",
+          "clean",
+          "-cache"
+        ]
+      ]
     },
     {
       "id": "gradle-cache",
       "name": "Gradle 캐시",
-      "globs": ["~/.gradle/caches", "~/.gradle/wrapper"],
+      "globs": [
+        "~/.gradle/caches",
+        "~/.gradle/wrapper"
+      ],
       "tool": "gradle",
+      "owner_apps": [
+        "Android Studio",
+        "IntelliJ IDEA",
+        "IntelliJ IDEA CE"
+      ],
       "tier": "safe",
       "note": "네이티브 정리 명령이 없습니다. 지우면 다음 빌드에서 다시 받습니다."
     },
     {
       "id": "maven-repo",
       "name": "Maven 로컬 저장소",
-      "globs": ["~/.m2/repository"],
+      "globs": [
+        "~/.m2/repository"
+      ],
       "tool": "mvn",
+      "owner_apps": [
+        "IntelliJ IDEA",
+        "IntelliJ IDEA CE",
+        "Eclipse",
+        "NetBeans"
+      ],
       "tier": "safe",
       "note": "네이티브 정리 명령이 없습니다. 지우면 다음 빌드에서 다시 받습니다."
     },
     {
       "id": "pip-cache",
       "name": "pip 캐시",
-      "globs": ["~/Library/Caches/pip"],
+      "globs": [
+        "~/Library/Caches/pip"
+      ],
       "tool": "pip",
       "tier": "safe",
-      "cleanup": [["pip", "cache", "purge"]]
+      "cleanup": [
+        [
+          "pip",
+          "cache",
+          "purge"
+        ]
+      ]
     },
     {
       "id": "homebrew-cache",
       "name": "Homebrew 다운로드 캐시",
-      "globs": ["~/Library/Caches/Homebrew"],
+      "globs": [
+        "~/Library/Caches/Homebrew"
+      ],
       "tool": "brew",
       "tier": "safe",
-      "cleanup": [["brew", "cleanup", "--prune=all"]]
+      "cleanup": [
+        [
+          "brew",
+          "cleanup",
+          "--prune=all"
+        ]
+      ]
     },
     {
       "id": "xcode-deriveddata",
       "name": "Xcode DerivedData",
-      "globs": ["~/Library/Developer/Xcode/DerivedData"],
+      "globs": [
+        "~/Library/Developer/Xcode/DerivedData"
+      ],
       "tool": "xcodebuild",
+      "owner_apps": [
+        "Xcode"
+      ],
       "tier": "artifact",
       "trash": true,
       "note": "빌드 산출물입니다 — 다음 빌드에서 다시 만들어집니다(첫 빌드가 느려집니다)."
@@ -141,8 +254,14 @@
     {
       "id": "xcode-devicesupport",
       "name": "Xcode iOS DeviceSupport",
-      "globs": ["~/Library/Developer/Xcode/iOS DeviceSupport", "~/Library/Developer/Xcode/watchOS DeviceSupport"],
+      "globs": [
+        "~/Library/Developer/Xcode/iOS DeviceSupport",
+        "~/Library/Developer/Xcode/watchOS DeviceSupport"
+      ],
       "tool": "xcodebuild",
+      "owner_apps": [
+        "Xcode"
+      ],
       "tier": "artifact",
       "trash": true,
       "note": "기기를 다시 연결하면 재생성됩니다(오래된 iOS 버전 심볼은 다시 못 받을 수 있습니다)."
@@ -150,10 +269,23 @@
     {
       "id": "coresimulator",
       "name": "iOS 시뮬레이터 기기",
-      "globs": ["~/Library/Developer/CoreSimulator/Devices", "~/Library/Developer/CoreSimulator/Caches"],
+      "globs": [
+        "~/Library/Developer/CoreSimulator/Devices",
+        "~/Library/Developer/CoreSimulator/Caches"
+      ],
       "tool": "simctl",
+      "owner_apps": [
+        "Xcode"
+      ],
       "tier": "artifact",
-      "cleanup": [["xcrun", "simctl", "delete", "unavailable"]],
+      "cleanup": [
+        [
+          "xcrun",
+          "simctl",
+          "delete",
+          "unavailable"
+        ]
+      ],
       "note": "사용 불가(unavailable) 기기만 지웁니다 — 현재 쓰는 시뮬레이터는 유지됩니다."
     }
   ]

@@ -53,7 +53,7 @@ go install .
 | `macinv trace <name>` | 바이너리 소유권 역추적. `which -a`의 각 경로를 심볼릭 링크 따라가 brew/npm/cargo/pipx/go/시스템/수동 중 무엇인지 판별. |
 | `macinv runtimes` | node/python/go/rust/java/ruby/php/dotnet/swift의 활성 버전·경로·관리 주체 + 버전 매니저가 관리 중인 버전. **지원 종료(EOL)** 를 endoflife.date로 조회해 `[EOL 지남]`/`[N개월 뒤 종료]`/`[지원 중]`, 업데이트는 `[현재]`/`[안전한 패치 있음]`/`[메이저 최신은 X]`로 표시. 올릴 명령을 **보여주기만** 하고 실행하지 않는다(런타임 메이저는 프로젝트를 깨뜨린다). 7일 캐시, `--offline`로 조회 생략. |
 | `macinv clean <name>` | 삭제 플래너. 앱 · brew formula/cask · **npm 전역 · pipx · cargo · go bin** 지원. **기본 dry-run** — 실제 삭제는 `--apply` + 대화형 확인이 있을 때만. |
-| `macinv update <name>` | 업데이트 플래너. brew formula/cask · npm 전역 · App Store(mas)를 최신으로. `clean`과 같은 렌더러/실행기 공유. **기본 dry-run**, `--apply`로 실행. **`--all`** 이면 업데이트 대기 전부를 일괄로. |
+| `macinv update <name>` | 업데이트 플래너. brew formula/cask · npm 전역 · App Store(mas)를 최신으로. `clean`과 같은 렌더러/실행기 공유. **기본 dry-run**, `--apply`로 실행. **`--all`** 이면 업데이트 대기 전부를 일괄로 — 단 **런타임 메이저 업그레이드(node 25→26 등)는 제외**하고 목록·명령만 보여준다(프로젝트가 깨질 수 있어 직접 실행). |
 | `macinv orphans` | **고아 잔여물 역스캔** — 이미 지운 앱들이 `~/Library`에 남긴 데이터를 찾아 정리. Bundle ID 형태 항목만 대상으로 하고, 애플(`com.apple.` 포함·팀ID·systemgroup)·설치 앱 파생물·벤더/공유 프레임워크(Shortcuts, Sparkle)는 보존. **기본 dry-run**, `--apply` + 확인 시 휴지통 이동. |
 | `macinv disk` | **디스크를 뭐가 먹고 있는지** — 알려진 캐시/모델/빌드 산출물 위치를 용량순으로. 인벤토리와 대조해 "도구는 없는데 캐시만 남은" **고아 캐시**를 표시하고, APFS 로컬 스냅샷 때문에 지워도 용량이 안 느는 상황을 안내. 정리는 네이티브 명령(`brew cleanup` 등)·휴지통 이동으로 **기본 dry-run**, `--apply` + 확인 시 실행. `--include-expensive`(모델 등), `--deep`(오래된 node_modules 탐색). |
 | `macinv tui` | 대화형 TUI. `space` 멀티선택 · `d` 삭제 · `u` 업데이트(계획 모달 → 승인, `[확신낮음]`은 체크로 opt-in, GUI 앱은 y/N 재확인) · `s` 앱 탭 정렬 토글(이름순↔용량순) · **디스크 탭**에서 캐시 위치 선택 후 `d`로 정리 · `r` 재스캔 · `←/→` 탭 · `↑/↓` 이동 · `q` 종료. 실행은 비동기 스트리밍 로그로 표시되고, 완료 후 해당 목록만 자동 갱신. |

@@ -14,14 +14,54 @@ import (
 // 이건 **인벤토리를 가진 macinv만 할 수 있는 판단**이다. du/ncdu는 폴더가 크다는 것만 알려주고
 // "이건 이제 아무도 안 쓴다"는 말은 못 한다. 그래서 요약에서 눈에 띄게 표시한다.
 
-// IsOrphanCache는 위치의 소유 도구가 설치 목록에 없는지 본다(순수 함수 — 테이블 테스트 대상).
-// 보수적 원칙: 소유 도구를 모르면(Tool이 비었으면) 고아라고 말하지 않는다.
-// never 등급(사용자 데이터)도 고아 표시를 하지 않는다 — 지우라는 신호로 읽히면 안 된다.
+// IsOrphanCache는 이 캐시를 쓰는 것이 하나도 안 남았는지 본다(순수 함수 — 테이블 테스트 대상).
+//
+// 보수적 원칙 — 애매하면 고아가 아니라고 본다:
+//   - 소유 도구를 모르면(Tool이 비었으면) 판정하지 않는다.
+//   - never 등급(사용자 데이터)은 고아 표시를 하지 않는다 — 지우라는 신호로 읽히면 안 된다.
+//   - **CLI 도구가 없어도 GUI 앱이 그 캐시를 쓴다**: gradle CLI 없이 Android Studio만
+//     깔아도 ~/.gradle은 살아있는 캐시다. OwnerApps 중 하나라도 설치돼 있으면 고아가 아니다.
+//
+// installed는 DetectTools가 만든 집합이다(인벤토리 ∪ PATH). 앱 이름도 들어 있다.
 func IsOrphanCache(l Location, installed map[string]bool) bool {
 	if l.Tool == "" || l.Tier == TierNever {
 		return false
 	}
-	return !installed[strings.ToLower(l.Tool)]
+	if anyInstalled(installed, l.Tool) {
+		return false
+	}
+	for _, app := range l.OwnerApps {
+		if anyInstalled(installed, app) {
+			return false
+		}
+	}
+	return true
+}
+
+// anyInstalled는 이름의 정규화 형태 중 하나라도 설치 집합에 있는지 본다.
+func anyInstalled(installed map[string]bool, name string) bool {
+	for _, k := range toolKeys(name) {
+		if installed[k] {
+			return true
+		}
+	}
+	return false
+}
+
+// toolKeys는 이름 하나를 설치 집합의 키 후보들로 바꾼다(순수 함수).
+// 공백 유무가 갈리는 이름이 있어("Android Studio" ↔ "androidstudio") 둘 다 만든다.
+// InstalledTools가 **넣을 때**와 IsOrphanCache가 **찾을 때** 같은 함수를 써야
+// 한쪽만 바뀌어 매칭이 깨지는 일이 없다.
+func toolKeys(name string) []string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return nil
+	}
+	packed := strings.NewReplacer(" ", "", "-", "", "_", "").Replace(lower)
+	if packed == lower {
+		return []string{lower}
+	}
+	return []string{lower, packed}
 }
 
 // InstalledTools는 인벤토리에서 "설치된 도구 이름" 집합을 만든다(순수 함수 — 테스트 대상).
@@ -30,8 +70,8 @@ func IsOrphanCache(l Location, installed map[string]bool) bool {
 func InstalledTools(rep *report.Report) map[string]bool {
 	set := map[string]bool{}
 	add := func(s string) {
-		if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
-			set[s] = true
+		for _, k := range toolKeys(s) {
+			set[k] = true
 		}
 	}
 	if rep == nil {
@@ -70,8 +110,7 @@ func InstalledTools(rep *report.Report) map[string]bool {
 		add(g.Name)
 	}
 	for _, a := range s.Apps {
-		add(a.Name)
-		add(strings.ReplaceAll(a.Name, " ", ""))
+		add(a.Name) // toolKeys가 "android studio"/"androidstudio" 둘 다 넣는다
 		if a.BundleID != nil {
 			if i := strings.LastIndex(*a.BundleID, "."); i >= 0 {
 				add((*a.BundleID)[i+1:])
@@ -120,9 +159,14 @@ var toolBinaries = map[string][]string{
 // pip 캐시를 고아로 잘못 표시한다(실측). PATH는 오래되지 않는 ground truth라 합집합을 쓴다.
 // 반대로 PATH만 쓰면 PATH에 없는 앱(OrbStack 등)을 놓치므로 둘 다 필요하다.
 func DetectTools(rep *report.Report) map[string]bool {
+	return detectToolsFrom(rep, Locations())
+}
+
+// detectToolsFrom은 위치 목록을 주입받는 형태다(테스트용 — 실제 PATH 조회는 그대로 한다).
+func detectToolsFrom(rep *report.Report, locs []Location) map[string]bool {
 	set := InstalledTools(rep)
-	for _, l := range Locations() {
-		if l.Tool == "" || set[strings.ToLower(l.Tool)] {
+	for _, l := range locs {
+		if l.Tool == "" || anyInstalled(set, l.Tool) {
 			continue
 		}
 		cands := toolBinaries[l.Tool]
@@ -131,7 +175,9 @@ func DetectTools(rep *report.Report) map[string]bool {
 		}
 		for _, bin := range cands {
 			if _, err := exec.LookPath(bin); err == nil {
-				set[strings.ToLower(l.Tool)] = true
+				for _, k := range toolKeys(l.Tool) {
+					set[k] = true
+				}
 				break
 			}
 		}

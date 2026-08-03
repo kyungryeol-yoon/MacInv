@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyungryeol-yoon/macinv/internal/clean"
 	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/macinv/internal/report"
 )
 
 func newUpdateCmd() *cobra.Command {
@@ -42,14 +43,21 @@ func runUpdateAll(ctx context.Context, apply bool) error {
 
 	step := func(msg string) { fmt.Fprintf(os.Stderr, "  … %s\n", msg) }
 	rows := collectOutdatedRows(ctx, run, rec, step)
-	plan := clean.UpgradePlanFromOutdated(rows)
+	// 런타임 메이저는 --all에서 빼고 목록으로만 보여준다 — 아래 printHeldRuntimes 참고.
+	auto, held := clean.SplitRuntimeMajors(rows)
+	plan := clean.UpgradePlanFromOutdated(auto)
 
 	if !plan.HasContent() {
+		if len(held) > 0 {
+			printHeldRuntimes(held)
+			return nil
+		}
 		fmt.Fprintf(os.Stdout, "\n  ✅ 모든 패키지가 최신 상태입니다.\n\n")
 		return nil
 	}
 
 	fmt.Fprint(os.Stdout, "\n"+clean.RenderPlanText(plan))
+	printHeldRuntimes(held)
 	if !apply {
 		fmt.Fprintf(os.Stdout, "\n  ℹ️  이건 dry-run입니다. 실제 업데이트하려면: macinv update --all --apply\n\n")
 		return nil
@@ -75,6 +83,21 @@ func runUpdateAll(ctx context.Context, apply bool) error {
 	)
 	fmt.Fprintln(os.Stdout)
 	return nil
+}
+
+// printHeldRuntimes는 --all에서 제외한 런타임 메이저를 목록과 명령으로만 보여준다.
+// 실행하지 않는 이유를 함께 적는다 — 빠진 것을 사용자가 "누락"으로 오해하면 안 된다.
+func printHeldRuntimes(held []report.OutdatedRow) {
+	if len(held) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stdout, "\n  ⏸  런타임 메이저 업그레이드 %d건은 --all에서 제외했습니다"+
+		" (프로젝트가 깨질 수 있어 직접 실행하세요):\n", len(held))
+	for _, r := range held {
+		fmt.Fprintf(os.Stdout, "     %-20s %s → %s\n", r.Name, r.Current, r.Latest)
+		fmt.Fprintf(os.Stdout, "       $ brew upgrade %s\n", r.Name)
+	}
+	fmt.Fprintf(os.Stdout, "     현황 확인: macinv runtimes\n")
 }
 
 func runUpdate(ctx context.Context, name string, apply bool) error {

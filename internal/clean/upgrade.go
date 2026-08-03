@@ -129,6 +129,23 @@ func cyclePrefix(v string, n int) string {
 	return strings.Join(out, ".")
 }
 
+// SplitRuntimeMajors는 outdated 행을 (일괄 실행 대상, 보류할 런타임 메이저)로 나눈다
+// (순수 함수 — 테이블 테스트 대상).
+//
+// `update --all`은 **생각 없이 실행하는 명령**이다. 프로젝트를 깨뜨릴 수 있는 런타임
+// 메이저 업그레이드(node 25→26 등)는 여기 들어가면 안 된다. 목록에는 보여주되
+// 명령은 사용자가 직접 실행하게 한다. 패치(같은 사이클)는 그대로 포함한다.
+func SplitRuntimeMajors(rows []report.OutdatedRow) (auto, held []report.OutdatedRow) {
+	for _, r := range rows {
+		if r.Source == "brew" && RuntimeMajorJump(r.Name, r.Current, r.Latest) {
+			held = append(held, r)
+			continue
+		}
+		auto = append(auto, r)
+	}
+	return auto, held
+}
+
 // UpgradePlanFromOutdated는 outdated 목록에서 곧장 일괄 업데이트 계획을 만든다(순수 함수 — 테스트 대상).
 // 각 행의 소스를 이미 알므로 설치 여부 프로브가 필요 없다(update --all 경로, 빠름).
 func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
@@ -141,6 +158,8 @@ func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
 				Argv:          [][]string{{"brew", "upgrade", r.Name}},
 				CmdTimeoutSec: upgradeTimeoutSec,
 			}
+			// 런타임 메이저는 SplitRuntimeMajors가 미리 걸러내지만, 이 함수를 직접 부르는
+			// 경로(테스트·향후 호출자)를 위해 경고는 남긴다 — 조용히 실행되는 일은 없어야 한다.
 			if RuntimeMajorJump(r.Name, r.Current, r.Latest) {
 				t.Warnings = append(t.Warnings,
 					"런타임 메이저 업그레이드입니다("+r.Current+" → "+r.Latest+") — 프로젝트가 깨질 수 있습니다. 자세히: macinv runtimes")
