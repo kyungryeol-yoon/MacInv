@@ -6,13 +6,28 @@ macOS에 설치된 소프트웨어 전체를 스캔해 **"내 맥에 뭐가 어�
 
 ## 설치
 
-**저장소는 현재 GitHub private**([kyungryeol-yoon/macinv](https://github.com/kyungryeol-yoon/macinv))다. `go install ...@latest`는 공개 모듈 프록시가 private 저장소를 못 읽어와 **동작하지 않는다** — 반드시 clone 후 로컬 빌드/설치한다.
+```bash
+git clone https://github.com/kyungryeol-yoon/macinv.git && cd macinv
+go install .        # → ~/go/bin/macinv (어디서든 `macinv`로 실행)
+```
 
-### 이미 clone된 소스에서
+`~/go/bin`이 PATH에 없으면 셸 프로필(`~/.zshrc`)에 추가한다:
+
+```bash
+export PATH="$HOME/go/bin:$PATH"
+```
+
+설치 확인: `macinv --version` (`-v`) → 현재 `macinv version 0.1.0`.
+PATH 밖에서 실행하면(`go run .` 등) macinv가 종료할 때 설치 방법을 한 줄 안내한다.
+
+> **`go install github.com/kyungryeol-yoon/macinv@latest`는 동작하지 않는다.**
+> 저장소가 [private](https://github.com/kyungryeol-yoon/macinv)이라 공개 모듈 프록시가 읽지 못한다.
+> 반드시 위처럼 clone 후 `go install .`로 설치한다. (public으로 전환하면 `@latest`도 동작한다.)
+
+### 빌드만 하고 싶다면
 
 ```bash
 go build -o macinv .   # 현재 디렉토리에 바이너리만
-go install .           # ~/go/bin/macinv 로 설치
 ```
 
 ### 새 macOS 기기에서 처음 설정할 때
@@ -22,20 +37,12 @@ brew install go gh              # Go 툴체인 + GitHub CLI (없으면)
 gh auth login                   # 최초 1회, 브라우저로 GitHub 로그인
 gh repo clone kyungryeol-yoon/macinv
 cd macinv
-go install .                    # ~/go/bin/macinv 로 설치
+go install .
 ```
 
-`gh auth login`으로 인증해두면 git credential helper가 자동 연결되어 `git clone`/`git push`/`go install`이 모두 이 저장소에 접근할 수 있다. (SSH 키를 쓴다면 `git clone git@github.com:kyungryeol-yoon/macinv.git`도 가능.) 저장소를 나중에 public으로 전환하면 맨 위 `go install github.com/kyungryeol-yoon/macinv@latest` 방식도 별도 인증 없이 동작한다.
-
-`~/go/bin`이 PATH에 없다면 셸 프로필(`~/.zshrc`)에 추가한다:
-
-```bash
-export PATH="$HOME/go/bin:$PATH"
-```
+`gh auth login`으로 인증해두면 git credential helper가 자동 연결되어 `git clone`/`git push`가 모두 이 저장소에 접근할 수 있다. (SSH 키를 쓴다면 `git clone git@github.com:kyungryeol-yoon/macinv.git`도 가능.)
 
 요구사항: **Go 1.25+**(`go.mod`의 `go` 지시자 기준 — `brew install go`로 충족, 이 프로젝트는 1.26.5로 개발), macOS. 스캔 대상 도구(brew/npm/pipx/cargo/mas 등)는 **설치돼 있을 때만** 조회하고, 없으면 조용히 건너뛴다.
-
-설치 확인: `macinv --version` (`-v`) → 현재 `macinv version 0.1.0`.
 
 ## 커맨드
 
