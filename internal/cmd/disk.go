@@ -19,6 +19,7 @@ type diskFlags struct {
 	jsonOut          bool
 	apply            bool
 	includeExpensive bool
+	includeRunning   bool
 	deep             bool
 	quiet            bool
 }
@@ -32,7 +33,8 @@ func newDiskCmd() *cobra.Command {
 			"캐시만 남은' 고아 캐시를 표시하고, APFS 로컬 스냅샷 때문에 지워도 용량이 안 늘어나는\n" +
 			"상황을 안내한다. 정리는 rm이 아니라 네이티브 명령(brew cleanup 등)과 휴지통 이동으로,\n" +
 			"--apply + 대화형 확인이 있을 때만 수행한다. 재다운로드가 비싼 항목(모델 등)은\n" +
-			"--include-expensive가 있을 때만 포함한다.",
+			"--include-expensive가 있을 때만 포함하고, 실행 중인 앱의 캐시는 기본 제외한다\n" +
+			"(Chromium은 캐시 핸들을 연 채로 돌아 오작동할 수 있다 — --include-running으로 해제).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDisk(cmd.Context(), f)
 		},
@@ -40,6 +42,7 @@ func newDiskCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.jsonOut, "json", false, "JSON을 표준출력으로 출력")
 	cmd.Flags().BoolVar(&f.apply, "apply", false, "실제로 정리 실행 (대화형 확인 필요). 미지정 시 계획만 출력(dry-run)")
 	cmd.Flags().BoolVar(&f.includeExpensive, "include-expensive", false, "재다운로드가 비싼 항목(모델·이미지)도 정리 대상에 포함")
+	cmd.Flags().BoolVar(&f.includeRunning, "include-running", false, "실행 중인 앱의 캐시도 정리 대상에 포함 (앱이 오작동할 수 있음)")
 	cmd.Flags().BoolVar(&f.deep, "deep", false, "홈 디렉토리에서 오래된 node_modules까지 탐색 (느림)")
 	cmd.Flags().BoolVar(&f.quiet, "quiet", false, "진행 표시 생략")
 	return cmd
@@ -83,7 +86,7 @@ func runDisk(ctx context.Context, f diskFlags) error {
 
 	disk.PrintSummary(os.Stdout, res, f.includeExpensive)
 
-	plan := disk.BuildCleanupPlan(res, nil, f.includeExpensive)
+	plan := disk.BuildCleanupPlan(res, nil, f.includeExpensive, f.includeRunning)
 	if !plan.HasContent() {
 		fmt.Fprintf(os.Stdout, "\n  정리할 수 있는 항목이 없습니다.\n\n")
 		return nil

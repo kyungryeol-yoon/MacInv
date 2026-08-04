@@ -41,9 +41,27 @@ func PrintSummary(w io.Writer, res *Result, includeExpensive bool) {
 		fmt.Fprintf(w, "  %-28s %s%s\n", "재다운로드 비싼 항목", report.HumanSize(&res.ExpensiveKB), hint)
 	}
 
+	printRunningBlocked(w, res)
 	printOrphans(w, line, res)
 	printDeep(w, line, res.Deep)
 	printSnapshots(w, line, res.Snapshots)
+}
+
+// printRunningBlocked는 실행 중이라 제외된 앱을 모아 보여준다.
+// 사용자가 "앱을 끄고 다시 돌릴지" 판단하려면 몇 개가 얼마나 걸려 있는지 알아야 한다.
+func printRunningBlocked(w io.Writer, res *Result) {
+	usage := RunningBlockedUsage(res.Entries)
+	if len(usage) == 0 {
+		return
+	}
+	total := 0
+	for _, u := range usage {
+		total += u.SizeKB
+	}
+	fmt.Fprintf(w, "\n  ⏸  %d개 앱이 실행 중이라 제외됨 (총 %s) — 앱을 종료하고 다시 실행하면 정리됩니다\n",
+		len(usage), report.HumanSize(&total))
+	fmt.Fprintf(w, "     %s\n", BreakdownLine(usage, 5))
+	fmt.Fprintf(w, "     그래도 지금 정리하려면: --include-running (앱이 오작동할 수 있습니다)\n")
 }
 
 // printOrphans는 고아 캐시를 따로 모아 보여준다.

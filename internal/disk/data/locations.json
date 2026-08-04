@@ -84,15 +84,21 @@
       "name": "Electron 앱 캐시 (Chromium)",
       "globs": [
         "~/Library/Application Support/*/Service Worker/CacheStorage",
+        "~/Library/Application Support/*/Service Worker/ScriptCache",
         "~/Library/Application Support/*/Code Cache",
         "~/Library/Application Support/*/GPUCache",
-        "~/Library/Application Support/*/Cache"
+        "~/Library/Application Support/*/Cache",
+        "~/Library/Application Support/*/Partitions/*/Service Worker/CacheStorage",
+        "~/Library/Application Support/*/Partitions/*/Service Worker/ScriptCache",
+        "~/Library/Application Support/*/Partitions/*/Code Cache",
+        "~/Library/Application Support/*/Partitions/*/GPUCache",
+        "~/Library/Application Support/*/Partitions/*/Cache"
       ],
       "tool": "",
       "tier": "safe",
       "trash": true,
       "group_by": "app-support-dir",
-      "note": "IndexedDB·Local Storage·Cookies는 일부러 제외했습니다 — 로그인 세션과 로컬 데이터가 들어 있어 지우면 재로그인이 필요합니다. 여기 캐시는 앱을 다시 켜면 재생성됩니다."
+      "note": "IndexedDB·Local Storage·Cookies는 일부러 제외했습니다 — 로그인 세션과 로컬 데이터가 들어 있어 지우면 재로그인이 필요합니다(Partitions 아래에서도 동일). 여기 캐시는 앱을 다시 켜면 재생성됩니다."
     },
     {
       "id": "npm-cache",

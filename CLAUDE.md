@@ -25,7 +25,7 @@ go install .              # ~/go/bin/macinv 로 설치
 
 `macinv runtimes` 플래그: `--json`, `--offline`(EOL 조회 생략 — 캐시만 사용).
 
-`macinv disk` 플래그: `--json`, `--apply`(정리 실행 — 확인 필요), `--include-expensive`(모델·이미지 포함), `--deep`(오래된 node_modules 탐색), `--quiet`.
+`macinv disk` 플래그: `--json`, `--apply`(정리 실행 — 확인 필요), `--include-expensive`(모델·이미지 포함), `--include-running`(실행 중인 앱의 캐시도 포함 — 오작동 위험), `--deep`(오래된 node_modules 탐색), `--quiet`.
 
 `macinv scan` 플래그: `--json`(JSON을 stdout으로), `--no-outdated`(네트워크 최신버전 체크 생략), `--no-sizes`(du 용량 계산 생략 — 앱 번들+데이터 둘 다), `--no-runtimes`(언어 런타임 조회 생략), `--quiet`(요약 생략), `-o PATH`(저장 경로). 결과는 항상 `~/.macinv/inventory.json`에 캐시된다. scan은 설치된 언어 런타임 버전도 요약에 포함한다.
 
@@ -132,7 +132,14 @@ clean(삭제 계획)이 서로 다른 규칙을 갖게 되는 순간 "보이는 
    - **회수 예상**: 디스크 계획은 회수량 대부분이 휴지통 경로가 아니라 **명령**(brew cleanup 등)에서 나온다. `clean.Plan.ExtraReclaimKB`에 그 몫을 실어 `ReclaimLine`이 요약의 "정리 시 회수 가능"과 같은 숫자를 내게 한다(안 그러면 3.1 GB vs 139 MB로 어긋난다 — 실측).
    - **Electron 앱 캐시**(2026-08-03 추가): Notion 캐시가 66GB까지 자란 사례가 동기. Electron 앱은 이름만 다를 뿐 같은 Chromium 캐시 구조를 쓰므로 **앱을 하드코딩하지 않고 `~/Library/Application Support/*/...` 패턴 하나로** 잡는다(`Cache`/`Code Cache`/`GPUCache`/`Service Worker/CacheStorage`). tier `safe` + `trash`(네이티브 정리 명령이 없다).
      - **`IndexedDB`·`Local Storage`·`Cookies`·`Session Storage`는 절대 포함하지 않는다** — 로그인 세션과 로컬 데이터가 들어 있어 지우면 재로그인이 필요하다. 이건 캐시 정리가 아니라 데이터 삭제다. glob 금지 목록을 **테스트로 강제**했으니(`TestElectronLocationNeverTargetsUserData`) 편의를 위해 추가하지 말 것.
+     - **`Partitions/<파티션>/` 아래도 본다**(2026-08-04): 세션을 분리하는 앱(워크스페이스를 여러 개 쓰는 Notion·Slack, Claude의 preview 파티션)은 `<앱>/Partitions/<파티션>/` 아래에 **같은 캐시 구조를 또** 만든다. 한 단계만 보면 통째로 놓친다. `Service Worker/ScriptCache`도 같은 이유로 추가. **제외 원칙(IndexedDB·Local Storage·Cookies)은 Partitions 아래에서도 동일**하다. `appSupportDirName`은 base 다음 **첫 마디**를 쓰므로 Partitions 경로에서도 앱 이름을 뽑는다 — Breakdown이 파티션별로 쪼개지지 않고 앱 단위로 합쳐진다(`TestBreakdownAggregatesPartitionsPerApp`로 고정).
      - 앱 단위 `clean` 계획과 경로가 겹쳐도 `ResolvePaths`의 `paths.DedupContained`가 더 넓은 위치 하나만 남긴다(`TestElectronPathsNeverNest`로 고정).
+
+   - **실행 중인 앱은 캐시를 지우지 않는다**(`running.go`, 2026-08-04): Chromium은 캐시 파일 핸들을 **연 채로** 돈다. 켜져 있을 때 캐시 디렉토리를 휴지통으로 옮기면 앱이 오작동하거나 캐시를 이상하게 재생성한다. Notion·Slack을 켜둔 채 `disk --apply`를 돌리는 게 가장 흔한 상황이라 실사용에서 바로 부딪힌다.
+     - 탐지는 `ps -Axo comm=` **1회**(경로마다 부르지 않는다) → `ParseRunningApps`가 경로에서 `.app` 번들 이름을 뽑는다. 프로세스 이름(`Electron`, `Code Helper`)이 아니라 **앱 번들 이름**을 쓰는 게 훨씬 믿을 만하다. 한 경로에 `.app`이 중첩되면(헬퍼) **전부** 담는다 — 놓쳐서 지우는 것보다 넉넉히 잡아 제외하는 쪽이 안전하다.
+     - 매칭은 순수 함수 `MatchesRunningApp`: ① 정규화 완전 일치 → ② 별칭 표(`dirToAppAliases`) → ③ 앱 이름을 단어로 쪼갰을 때 디렉토리 이름이 **한 단어로** 들어 있음("Code" ⊂ "Visual Studio Code", "LogiOptionsPlus" ⊂ "logioptionsplus_agent"). **부분 문자열이 아니라 단어 단위**인 이유는 "Home"/"Mail" 같은 짧은 이름이 무관한 앱에 걸리면 멀쩡한 캐시가 영영 정리되지 않기 때문. 다만 애매하면 **제외(보호) 쪽으로 기운다**.
+     - 기본은 제외 + `Target.Excluded`에 "실행 중(<앱>) — 앱을 종료한 뒤 다시 실행하세요". `--include-running`이면 포함하되 **앱마다 한 번씩** 경고를 붙인다(경로마다 반복하면 소음). TUI는 해제 수단이 없다(기본 보호 고정).
+     - 요약 하단에 `⏸ N개 앱이 실행 중이라 제외됨 (총 X GB)` + 앱별 내역을 낸다 — 앱을 끄고 다시 돌릴지 판단하려면 얼마가 걸려 있는지 알아야 한다.
 
    - **비용**: 이 맥 실측 기본 1.3초. 가장 무거운 건 OrbStack 데이터(26GB) walk다.
 
@@ -171,6 +178,6 @@ clean(삭제 계획)이 서로 다른 규칙을 갖게 되는 순간 "보이는 
 ## 테스트 관례
 - 파싱 로직마다 테이블 기반 유닛 테스트. 실제 명령 출력 샘플을 `internal/source/testdata/`에 fixture로 저장하고, 파서 함수에 직접 주입해 검증(exec 미실행).
 - 새 소스/커맨드 추가 시 프로토타입 JSON과 구조적으로 diff해 누락 필드가 없는지 확인하는 습관을 유지한다(M1에서 검증한 방식).
-- 안전 판정은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. `paths`: `IsProtected`/`IsAppleSystemApp`/`bundleGlobs`/`nameGlobs`/`DerivedBundleID`/`DedupContained`/`groupContainerMatchesApp`/`LookupVendor`. `clean`: `classifyOrphan`/`matchApps`/`excludeOtherAppIDs`/`ownerOfID`/`splitByWritability`/`ShellQuote`/`ReclaimKB`/`parseDuSizes`. `source`(EOL): `MatchCycle`/`normalizeVersion`/`eolDateStatus`/`compareVersions`/`SuggestUpgradeCommand`/`applyEOL`, `report`: `EOLBadge`/`UpdateBadge`. `clean`: `RuntimeMajorJump`/`cyclePrefix`/`SplitRuntimeMajors`. `disk`: `Cleanable`/`IsOrphanCache`/`InstalledTools`/`toolKeys`/`ExpandGlob`/`ResolvePaths`/`HasAppleComponent`/`GroupUsage`/`BreakdownLine`/`BuildCleanupPlan`/`BuildOllamaPlan`/`ParseOllamaList`/`ParseSnapshots`/`ParseDF`/`SumDuKB`. 파일시스템이 필요한 것(`gatherLeftovers`, `SizePaths`, `MeasureTrashSizes`)은 `t.TempDir()`에 실제 파일을 만들어 검증한다.
+- 안전 판정은 전부 순수 함수 — 파일시스템/외부 명령 없이 테이블 테스트로 커버한다. `paths`: `IsProtected`/`IsAppleSystemApp`/`bundleGlobs`/`nameGlobs`/`DerivedBundleID`/`DedupContained`/`groupContainerMatchesApp`/`LookupVendor`. `clean`: `classifyOrphan`/`matchApps`/`excludeOtherAppIDs`/`ownerOfID`/`splitByWritability`/`ShellQuote`/`ReclaimKB`/`parseDuSizes`. `source`(EOL): `MatchCycle`/`normalizeVersion`/`eolDateStatus`/`compareVersions`/`SuggestUpgradeCommand`/`applyEOL`, `report`: `EOLBadge`/`UpdateBadge`. `clean`: `RuntimeMajorJump`/`cyclePrefix`/`SplitRuntimeMajors`. `disk`: `Cleanable`/`IsOrphanCache`/`InstalledTools`/`toolKeys`/`ExpandGlob`/`ResolvePaths`/`HasAppleComponent`/`GroupUsage`/`BreakdownLine`/`ParseRunningApps`/`MatchesRunningApp`/`RunningBlockedUsage`/`BuildCleanupPlan`/`BuildOllamaPlan`/`ParseOllamaList`/`ParseSnapshots`/`ParseDF`/`SumDuKB`. 파일시스템이 필요한 것(`gatherLeftovers`, `SizePaths`, `MeasureTrashSizes`)은 `t.TempDir()`에 실제 파일을 만들어 검증한다.
 - 실기에서 오탐/오탐지가 나오면 반드시 회귀 테스트로 고정한다(orphans의 `orphanProtected`, 6-1의 `TestLeftoversDoNotSwallowOtherApp`, 6-4의 `TestDedupContained`가 그 예).
 - **리팩터링은 출력 diff로 검증한다**: 동작이 바뀌면 안 되는 변경(6-3 같은 레이어 이동)은 리팩터 전 바이너리를 `git worktree`로 빌드해 두고 `scan --json`/`clean` dry-run/`orphans` 출력을 diff한다. 용량(`size_kb`/`data_size_kb`)과 `generated_at`은 실행마다 달라지므로 비교에서 뺀다.

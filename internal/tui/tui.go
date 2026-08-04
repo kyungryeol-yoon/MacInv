@@ -207,7 +207,9 @@ func (m Model) runJobCmd(j job) tea.Cmd {
 func (m Model) buildDiskPlanCmd(ids map[string]bool) tea.Cmd {
 	res := m.diskRes
 	return func() tea.Msg {
-		return planMsg{plan: disk.BuildCleanupPlan(res, ids, true)}
+		// includeRunning=false: 실행 중인 앱의 캐시는 TUI에서도 기본 보호한다.
+		// 해제 수단은 CLI의 --include-running뿐 — 앱을 켜둔 채 실수로 지우는 게 가장 흔한 사고다.
+		return planMsg{plan: disk.BuildCleanupPlan(res, ids, true, false)}
 	}
 }
 

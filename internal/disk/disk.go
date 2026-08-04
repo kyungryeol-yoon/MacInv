@@ -193,14 +193,18 @@ func GroupUsage(home, groupBy string, sizes map[string]int) []Usage {
 	for name, kb := range byName {
 		out = append(out, Usage{Name: name, SizeKB: kb})
 	}
-	// 용량 내림차순, 같으면 이름순(출력이 실행마다 흔들리지 않게).
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].SizeKB != out[j].SizeKB {
-			return out[i].SizeKB > out[j].SizeKB
-		}
-		return out[i].Name < out[j].Name
-	})
+	sortUsage(out)
 	return out
+}
+
+// sortUsage는 용량 내림차순, 같으면 이름순으로 정렬한다(출력이 실행마다 흔들리지 않게).
+func sortUsage(u []Usage) {
+	sort.Slice(u, func(i, j int) bool {
+		if u[i].SizeKB != u[j].SizeKB {
+			return u[i].SizeKB > u[j].SizeKB
+		}
+		return u[i].Name < u[j].Name
+	})
 }
 
 // UserHome은 홈 디렉토리다(조회 실패 시 빈 문자열).

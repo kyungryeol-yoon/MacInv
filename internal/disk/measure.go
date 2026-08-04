@@ -31,10 +31,13 @@ type Entry struct {
 	// ② 와일드카드 위치의 앱별 내역(Breakdown)을 낼 수 없다.
 	PathSizes map[string]int `json:"path_sizes,omitempty"`
 	// Breakdown은 GroupBy가 있는 위치의 내역이다(용량순). 없으면 nil.
-	Breakdown []Usage    `json:"breakdown,omitempty"`
-	Cleanup   [][]string `json:"cleanup,omitempty"`
-	Trash     bool       `json:"trash,omitempty"`
-	Note      string     `json:"note,omitempty"`
+	Breakdown []Usage `json:"breakdown,omitempty"`
+	// BlockedByRunning은 소유 앱이 **실행 중**이라 정리하면 안 되는 경로다(경로 → 앱 이름).
+	// Chromium은 캐시 핸들을 연 채로 돌아서, 켜져 있을 때 지우면 앱이 오작동한다.
+	BlockedByRunning map[string]string `json:"blocked_by_running,omitempty"`
+	Cleanup          [][]string        `json:"cleanup,omitempty"`
+	Trash            bool              `json:"trash,omitempty"`
+	Note             string            `json:"note,omitempty"`
 
 	groupBy string // 측정 후 Breakdown을 만들 때만 쓰는 내부 값(JSON에 안 나감)
 }
@@ -56,6 +59,8 @@ type Result struct {
 func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools map[string]bool) *Result {
 	locs := Locations()
 	byID := ResolvePaths(home, locs)
+	// 실행 중인 앱 조회는 ps 1회 — 경로마다 부르지 않는다.
+	running := RunningApps(ctx, run)
 
 	entries := make([]Entry, 0, len(locs))
 	for _, l := range locs {
@@ -82,6 +87,7 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 				entries[i].SizeKB += kb
 			}
 			entries[i].Breakdown = GroupUsage(home, entries[i].groupBy, sizes)
+			entries[i].BlockedByRunning = blockedByRunning(home, entries[i].groupBy, entries[i].Paths, running)
 			return nil // 개별 실패는 0KB로 두고 전체를 멈추지 않는다
 		})
 	}

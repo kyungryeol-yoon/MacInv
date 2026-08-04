@@ -31,7 +31,7 @@ func sampleResult() *Result {
 
 // 기본 정리 계획은 safe+artifact만 담고, expensive/never/리포트전용은 뺀다.
 func TestBuildCleanupPlanDefault(t *testing.T) {
-	plan := BuildCleanupPlan(sampleResult(), nil, false)
+	plan := BuildCleanupPlan(sampleResult(), nil, false, false)
 	names := planNames(plan)
 
 	if !contains(names, "npm 캐시") || !contains(names, "Xcode DerivedData") {
@@ -63,7 +63,7 @@ func TestBuildCleanupPlanDefault(t *testing.T) {
 
 // --include-expensive를 줘야 모델/이미지가 포함된다(clean의 --include-low와 같은 패턴).
 func TestBuildCleanupPlanIncludeExpensive(t *testing.T) {
-	plan := BuildCleanupPlan(sampleResult(), nil, true)
+	plan := BuildCleanupPlan(sampleResult(), nil, true, false)
 	names := planNames(plan)
 	if !contains(names, "OrbStack") {
 		t.Errorf("--include-expensive인데 OrbStack이 없음: %v", names)
@@ -79,7 +79,7 @@ func TestBuildCleanupPlanIncludeExpensive(t *testing.T) {
 
 // TUI 멀티선택: 고른 ID만 담는다.
 func TestBuildCleanupPlanSelected(t *testing.T) {
-	plan := BuildCleanupPlan(sampleResult(), map[string]bool{"npm-cache": true}, false)
+	plan := BuildCleanupPlan(sampleResult(), map[string]bool{"npm-cache": true}, false, false)
 	if len(plan.Targets) != 1 || !strings.Contains(plan.Targets[0].Name, "npm") {
 		t.Errorf("선택한 것만 담기지 않음: %v", planNames(plan))
 	}
@@ -91,7 +91,7 @@ func TestCleanupPlanKeepsOrphanWarning(t *testing.T) {
 		ID: "gradle", Name: "Gradle 캐시", Tool: "gradle", Tier: TierSafe, Orphan: true,
 		Paths: []string{"/h/.gradle"}, Cleanup: [][]string{{"true"}},
 	}}}
-	text := clean.RenderPlanText(BuildCleanupPlan(res, nil, false))
+	text := clean.RenderPlanText(BuildCleanupPlan(res, nil, false, false))
 	if !strings.Contains(text, "고아 캐시") || !strings.Contains(text, "gradle") {
 		t.Errorf("고아 경고가 계획에 없음:\n%s", text)
 	}
@@ -175,7 +175,7 @@ func contains(ss []string, sub string) bool {
 // 회수 예상은 명령이 지우는 몫까지 포함해야 한다.
 // 휴지통 경로만 세면 요약의 "정리 시 회수 가능"과 계획 하단 숫자가 어긋난다(실측: 3.1 GB vs 139 MB).
 func TestCleanupPlanReclaimIncludesCommandTargets(t *testing.T) {
-	plan := BuildCleanupPlan(sampleResult(), nil, false)
+	plan := BuildCleanupPlan(sampleResult(), nil, false, false)
 	kb, ok := clean.ReclaimKB(plan, nil)
 	if !ok {
 		t.Fatal("회수 예상이 계산되지 않음")
@@ -186,7 +186,7 @@ func TestCleanupPlanReclaimIncludesCommandTargets(t *testing.T) {
 		t.Errorf("회수 예상 = %d KB, want %d", kb, want)
 	}
 	// 명령 대상만 있는 계획도 숫자가 나와야 한다(휴지통 경로 0건).
-	only := BuildCleanupPlan(sampleResult(), map[string]bool{"npm-cache": true}, false)
+	only := BuildCleanupPlan(sampleResult(), map[string]bool{"npm-cache": true}, false, false)
 	kb, ok = clean.ReclaimKB(only, nil)
 	if !ok || kb != 2*1024*1024 {
 		t.Errorf("명령 전용 계획 회수 예상 = %d KB (ok=%v), want %d", kb, ok, 2*1024*1024)
@@ -210,7 +210,7 @@ func TestTrashPathsCarryOwnSize(t *testing.T) {
 			"/h/AS/Slack/Cache":     200,
 		},
 	}}}
-	plan := BuildCleanupPlan(res, nil, false)
+	plan := BuildCleanupPlan(res, nil, false, false)
 
 	for _, pm := range plan.Targets[0].TrashPaths {
 		if pm.SizeKB != res.Entries[0].PathSizes[pm.Path] {

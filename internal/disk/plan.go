@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,9 @@ const cleanupTimeoutSec = 900
 //
 // selected가 nil이 아니면 그 ID만 담는다(TUI 멀티선택). includeExpensive가 false면
 // expensive 등급은 제외한다(clean의 --include-low와 같은 패턴). never는 언제나 제외.
-func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive bool) *clean.Plan {
+// includeRunning이 false면 소유 앱이 실행 중인 경로를 빼고 보존 사유를 남긴다 —
+// Chromium은 캐시 핸들을 연 채로 돌아서 켜져 있을 때 지우면 앱이 오작동한다.
+func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive, includeRunning bool) *clean.Plan {
 	plan := &clean.Plan{Query: "디스크 정리", Verb: "정리", Icon: "🧽"}
 	for _, e := range res.Entries {
 		if selected != nil && !selected[e.ID] {
@@ -47,11 +50,27 @@ func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive bo
 			// 네이티브 명령이 없는 위치(DerivedData, Electron 캐시 등)는 휴지통 이동으로 정리한다 — rm은 쓰지 않는다.
 			// 용량은 **경로마다 제 값**을 실어야 한다. 위치 합계를 경로마다 넣으면
 			// 경로가 N개일 때 회수 예상이 N배로 부풀려진다(Electron 캐시는 앱마다 4개씩 잡힌다).
+			blockedApps := map[string]bool{}
 			for _, p := range e.Paths {
+				if app, running := e.BlockedByRunning[p]; running && !includeRunning {
+					t.Excluded = append(t.Excluded, clean.Exclusion{
+						Path:   p,
+						Reason: "실행 중(" + app + ") — 앱을 종료한 뒤 다시 실행하세요",
+					})
+					continue
+				}
 				t.TrashPaths = append(t.TrashPaths, clean.PathMatch{
 					Path: p, Confidence: clean.ConfHigh, Reason: e.Name + " (재생성됨)",
 					SizeKB: e.PathSizes[p],
 				})
+				if app, running := e.BlockedByRunning[p]; running {
+					blockedApps[app] = true
+				}
+			}
+			// --include-running으로 실행 중인 앱을 굳이 포함했으면 위험을 분명히 알린다.
+			for _, app := range sortedKeys(blockedApps) {
+				t.Warnings = append(t.Warnings,
+					app+"이(가) 실행 중입니다 — 캐시를 지우면 오작동할 수 있습니다(앱 종료 권장).")
 			}
 			t.Suggestions = append(t.Suggestions,
 				"휴지통으로 옮기므로 비우기 전까지는 디스크가 실제로 비지 않습니다.")
@@ -161,4 +180,14 @@ func humanKB(kb int) string {
 	default:
 		return strconv.Itoa(kb) + " KB"
 	}
+}
+
+// sortedKeys는 맵 키를 정렬해 돌려준다(출력이 실행마다 흔들리지 않게).
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
