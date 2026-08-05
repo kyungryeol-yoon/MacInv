@@ -18,15 +18,19 @@ import (
 // `--include-running`을 줬을 때만 경고와 함께 포함한다.
 
 // RunningApps는 실행 중인 프로세스에서 앱 번들 이름을 모은다(읽기 전용).
-// 조회에 실패하면 nil — 그 경우 보호가 꺼지므로 호출자는 조용히 진행한다(부가 안전장치).
-func RunningApps(ctx context.Context, run *iexec.Runner) []string {
+//
+// ok=false는 **조회 자체가 실패했다**는 뜻이다. "실행 중인 앱이 없다"(빈 목록 + ok=true)와
+// 반드시 구분해야 한다 — 둘을 뭉뚱그리면 보호가 조용히 꺼진 채 사용자는 도는 줄 안다.
+// **안전장치가 조용히 사라지는 건 처음부터 없는 것보다 나쁘다.**
+func RunningApps(ctx context.Context, run *iexec.Runner) (apps []string, ok bool) {
 	// comm=은 실행 파일 **전체 경로**를 준다(/Applications/Visual Studio Code.app/Contents/MacOS/Electron).
 	// 프로세스 이름(Electron, Code Helper …)보다 앱 번들 이름이 훨씬 믿을 만하다.
 	out, err := run.Run(ctx, iexec.Opt{TimeoutSec: 15}, "ps", "-Axo", "comm=")
-	if err != nil {
-		return nil
+	if err != nil || strings.TrimSpace(out) == "" {
+		// 출력이 통째로 비는 것도 실패다 — macOS에서 프로세스가 0개일 수는 없다.
+		return nil, false
 	}
-	return ParseRunningApps(out)
+	return ParseRunningApps(out), true
 }
 
 // ParseRunningApps는 ps 출력에서 .app 번들 이름을 뽑는다(순수 함수 — 테스트 대상).

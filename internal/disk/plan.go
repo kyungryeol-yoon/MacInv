@@ -30,6 +30,7 @@ const cleanupTimeoutSec = 900
 // Chromium은 캐시 핸들을 연 채로 돌아서 켜져 있을 때 지우면 앱이 오작동한다.
 func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive, includeRunning bool) *clean.Plan {
 	plan := &clean.Plan{Query: "디스크 정리", Verb: "정리", Icon: "🧽"}
+	runningUnverified := false
 	for _, e := range res.Entries {
 		if selected != nil && !selected[e.ID] {
 			continue
@@ -90,7 +91,17 @@ func BuildCleanupPlan(res *Result, selected map[string]bool, includeExpensive, i
 			t.Warnings = append(t.Warnings,
 				"고아 캐시 — '"+e.Tool+"'가 인벤토리에 없습니다(도구를 지운 뒤 남은 것으로 보입니다).")
 		}
+		// 실행 중 앱 보호가 동작하지 않는데 그 보호가 필요한 위치를 담았다면 반드시 알린다.
+		// 조용히 넘어가면 사용자는 보호가 도는 줄 알고 --apply를 누른다.
+		if res.RunningCheckFailed && e.GroupBy == GroupByAppSupportDir {
+			runningUnverified = true
+		}
 		plan.Targets = append(plan.Targets, t)
+	}
+	if runningUnverified {
+		plan.Warnings = append(plan.Warnings,
+			"실행 중인 앱을 확인할 수 없습니다 — 앱을 모두 종료한 뒤 진행하세요"+
+				" (켜져 있는 앱의 캐시를 지우면 오작동할 수 있습니다).")
 	}
 	return plan
 }

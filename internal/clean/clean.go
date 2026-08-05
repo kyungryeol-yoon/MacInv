@@ -60,6 +60,9 @@ type Plan struct {
 	// RequireConfirm은 승인 뒤 한 번 더(y/N) 물어야 하는 계획이다.
 	// GUI 앱 삭제처럼 되돌리기 어려운 것에 붙인다(disk의 재다운로드 비싼 항목 등).
 	RequireConfirm bool
+	// Warnings는 특정 타깃이 아니라 **계획 전체**에 걸리는 경고다(제목 바로 아래에 나온다).
+	// 예: 안전장치가 동작하지 않는 상태 — 사용자가 승인 전에 반드시 봐야 한다.
+	Warnings []string
 	// ExtraReclaimKB는 휴지통 경로 **밖에서** 회수될 용량이다.
 	// 네이티브 명령(brew cleanup, npm cache clean …)이 지우는 몫은 TrashPaths에 없어
 	// 이걸 안 더하면 회수 예상이 실제보다 훨씬 작게 나온다(disk 계획에서 사용).
@@ -134,7 +137,7 @@ func (p *Plan) WithoutLowConfidence() *Plan {
 // WithSelectedLow는 high+medium 경로는 항상, 확신낮음 경로는 enabled[path]가 true인 것만 담은 사본을 돌려준다.
 // enabled가 nil이면 확신낮음은 전부 제외(안전 기본값). 실행 직전 effective plan 생성에 쓴다.
 func (p *Plan) WithSelectedLow(enabled map[string]bool) *Plan {
-	out := &Plan{Query: p.Query, Verb: p.Verb, Icon: p.Icon,
+	out := &Plan{Query: p.Query, Verb: p.Verb, Icon: p.Icon, Warnings: p.Warnings,
 		RequireConfirm: p.RequireConfirm, ExtraReclaimKB: p.ExtraReclaimKB}
 	for _, t := range p.Targets {
 		nt := t

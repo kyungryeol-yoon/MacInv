@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kyungryeol-yoon/macinv/internal/clean"
 )
 
 func TestParseRunningApps(t *testing.T) {
@@ -210,5 +212,74 @@ func TestBreakdownAggregatesPartitionsPerApp(t *testing.T) {
 	// appSupportDirName이 Partitions 경로에서도 앱 이름을 뽑아야 한다.
 	if n := appSupportDirName(home, base+"Notion/Partitions/workspace-1/Cache"); n != "Notion" {
 		t.Errorf("appSupportDirName(Partitions 경로) = %q, want Notion", n)
+	}
+}
+
+// 안전장치가 조용히 사라지면 안 된다.
+// ps 조회에 실패하면 보호가 동작하지 않는데, 사용자는 도는 줄 알고 --apply를 누른다.
+func TestPlanWarnsWhenRunningCheckFailed(t *testing.T) {
+	electron := runningEntry()
+	electron.GroupBy = GroupByAppSupportDir
+	electron.BlockedByRunning = nil // 조회 실패라 아무것도 못 막았다
+	npm := Entry{
+		ID: "npm-cache", Name: "npm 캐시", Tier: TierSafe,
+		Paths: []string{"/h/.npm/_cacache"}, SizeKB: 100,
+		Cleanup: [][]string{{"npm", "cache", "clean", "--force"}},
+	}
+
+	hasWarning := func(p *clean.Plan) bool {
+		for _, w := range p.Warnings {
+			if strings.Contains(w, "실행 중인 앱을 확인할 수 없습니다") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// ① 조회 실패 + Electron 항목 포함 → 경고
+	failed := &Result{Entries: []Entry{electron, npm}, RunningCheckFailed: true}
+	if !hasWarning(BuildCleanupPlan(failed, nil, false, false)) {
+		t.Error("조회 실패인데 경고가 없음 — 보호가 조용히 꺼졌다")
+	}
+
+	// ② 조회 실패 + Electron 항목 없음 → 경고 없음(무관한 소음 방지)
+	noElectron := &Result{Entries: []Entry{npm}, RunningCheckFailed: true}
+	if hasWarning(BuildCleanupPlan(noElectron, nil, false, false)) {
+		t.Error("Electron 항목이 없는데 경고가 붙음")
+	}
+
+	// ③ Electron 항목이 있어도 선택에서 빠지면 경고 없음
+	onlyNpm := BuildCleanupPlan(failed, map[string]bool{"npm-cache": true}, false, false)
+	if hasWarning(onlyNpm) {
+		t.Error("계획에 안 담긴 위치 때문에 경고가 붙음")
+	}
+
+	// ④ 조회 성공 → 경고 없음
+	okRes := &Result{Entries: []Entry{electron, npm}, RunningCheckFailed: false}
+	if hasWarning(BuildCleanupPlan(okRes, nil, false, false)) {
+		t.Error("조회 성공인데 경고가 붙음")
+	}
+
+	// 경고는 계획 렌더 **맨 앞**에 나와야 승인 전에 보인다(CLI·TUI 공용 PlanLines 경유).
+	lines := clean.PlanLines(BuildCleanupPlan(failed, nil, false, false))
+	if len(lines) == 0 || lines[0].Kind != "planwarning" {
+		t.Errorf("경고가 계획 상단에 없음: %+v", lines[:1])
+	}
+	text := clean.RenderPlanText(BuildCleanupPlan(failed, nil, false, false))
+	if !strings.Contains(text, "실행 중인 앱을 확인할 수 없습니다") {
+		t.Errorf("렌더 결과에 경고가 없음:\n%s", text)
+	}
+}
+
+// 조회 실패와 "실행 중인 앱이 없음"은 반드시 구분돼야 한다.
+func TestRunningCheckFailureIsNotEmptyList(t *testing.T) {
+	// 빈 문자열 출력 = 실패로 본다(macOS에서 프로세스가 0개일 수는 없다).
+	if apps := ParseRunningApps(""); len(apps) != 0 {
+		t.Errorf("빈 출력인데 앱이 나옴: %v", apps)
+	}
+	// blockedByRunning은 실행 목록이 비면 아무것도 막지 않는다 —
+	// 그래서 "비었음"을 실패와 구분해 Result에 따로 기록해야 한다.
+	if got := blockedByRunning("/h", GroupByAppSupportDir, []string{"/h/x"}, nil); got != nil {
+		t.Errorf("빈 실행 목록인데 차단됨: %v", got)
 	}
 }

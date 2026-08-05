@@ -38,8 +38,9 @@ type Entry struct {
 	Cleanup          [][]string        `json:"cleanup,omitempty"`
 	Trash            bool              `json:"trash,omitempty"`
 	Note             string            `json:"note,omitempty"`
-
-	groupBy string // 측정 후 Breakdown을 만들 때만 쓰는 내부 값(JSON에 안 나감)
+	// GroupBy는 Location에서 그대로 온다. 계획 단계에서도 "이 위치가 실행 중 앱 보호
+	// 대상인가"를 알아야 해서 Entry에 남긴다(app-support-dir = Electron 캐시).
+	GroupBy string `json:"group_by,omitempty"`
 }
 
 // Result는 disk 커맨드의 전체 결과다.
@@ -49,9 +50,13 @@ type Result struct {
 	// ReclaimableKB는 기본 정리 대상(safe+artifact)의 합계다.
 	ReclaimableKB int `json:"reclaimable_kb"`
 	// ExpensiveKB는 --include-expensive를 줘야 정리되는 몫이다.
-	ExpensiveKB int             `json:"expensive_kb"`
-	Snapshots   *SnapshotReport `json:"snapshots,omitempty"`
-	Deep        []DeepFinding   `json:"deep,omitempty"`
+	ExpensiveKB int `json:"expensive_kb"`
+	// RunningCheckFailed는 실행 중인 앱 조회가 실패했다는 뜻이다.
+	// 이때 Electron 캐시 보호가 동작하지 않으므로 **반드시 사용자에게 알려야 한다** —
+	// 보호가 도는 줄 알고 --apply를 누르면 실행 중인 앱의 캐시가 그대로 지워진다.
+	RunningCheckFailed bool            `json:"running_check_failed,omitempty"`
+	Snapshots          *SnapshotReport `json:"snapshots,omitempty"`
+	Deep               []DeepFinding   `json:"deep,omitempty"`
 }
 
 // Scan은 알려진 위치들을 병렬로 측정해 용량순으로 돌려준다(읽기 전용).
@@ -60,7 +65,7 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 	locs := Locations()
 	byID := ResolvePaths(home, locs)
 	// 실행 중인 앱 조회는 ps 1회 — 경로마다 부르지 않는다.
-	running := RunningApps(ctx, run)
+	running, runningOK := RunningApps(ctx, run)
 
 	entries := make([]Entry, 0, len(locs))
 	for _, l := range locs {
@@ -72,7 +77,7 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 			ID: l.ID, Name: l.Name, Tool: l.Tool, Tier: l.Tier,
 			Paths: ps, Cleanup: l.Cleanup, Trash: l.Trash, Note: l.Note,
 			Orphan:  installedTools != nil && IsOrphanCache(l, installedTools),
-			groupBy: l.GroupBy,
+			GroupBy: l.GroupBy,
 		})
 	}
 
@@ -86,8 +91,8 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 			for _, kb := range sizes {
 				entries[i].SizeKB += kb
 			}
-			entries[i].Breakdown = GroupUsage(home, entries[i].groupBy, sizes)
-			entries[i].BlockedByRunning = blockedByRunning(home, entries[i].groupBy, entries[i].Paths, running)
+			entries[i].Breakdown = GroupUsage(home, entries[i].GroupBy, sizes)
+			entries[i].BlockedByRunning = blockedByRunning(home, entries[i].GroupBy, entries[i].Paths, running)
 			return nil // 개별 실패는 0KB로 두고 전체를 멈추지 않는다
 		})
 	}
@@ -95,7 +100,7 @@ func Scan(ctx context.Context, run *iexec.Runner, home string, installedTools ma
 
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].SizeKB > entries[j].SizeKB })
 
-	res := &Result{Entries: entries}
+	res := &Result{Entries: entries, RunningCheckFailed: !runningOK}
 	for _, e := range entries {
 		res.TotalKB += e.SizeKB
 		switch {

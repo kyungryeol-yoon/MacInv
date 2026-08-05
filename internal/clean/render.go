@@ -9,7 +9,7 @@ import (
 // Toggleable이 true면 그 줄은 [확신낮음] 잔여 경로로, 사용자가 켜야만 삭제 대상이 된다.
 type PlanLine struct {
 	Text       string // 렌더용 텍스트(들여쓰기 포함, 배지 제외)
-	Kind       string // "target"|"bundle"|"warning"|"command"|"path"|"needadmin"|"excluded"|"suggestion"
+	Kind       string // "planwarning"|"target"|"bundle"|"warning"|"command"|"path"|"needadmin"|"excluded"|"suggestion"
 	Confidence string // Kind=="path"일 때만: high|medium|low
 	Path       string // Kind=="path"|"excluded"일 때 실제 경로
 	Toggleable bool   // 확신낮음 경로 → 체크박스 대상
@@ -18,6 +18,11 @@ type PlanLine struct {
 // PlanLines는 계획을 구조화된 줄 목록으로 만든다(CLI/TUI 공용 단일 소스).
 func PlanLines(p *Plan) []PlanLine {
 	var lines []PlanLine
+	// 계획 전체 경고를 맨 앞에 — 타깃 목록에 묻히면 승인 전에 못 본다.
+	// PlanLines에 넣어야 CLI 텍스트와 TUI 모달이 같은 것을 보여준다.
+	for _, w := range p.Warnings {
+		lines = append(lines, PlanLine{Kind: "planwarning", Text: "⚠️  " + w})
+	}
 	for _, t := range p.Targets {
 		lines = append(lines, PlanLine{Kind: "target", Text: fmt.Sprintf("▸ %s (%s)", t.Name, KindLabel(t.Kind))})
 		if t.BundleID != "" {

@@ -50,6 +50,13 @@ func PrintSummary(w io.Writer, res *Result, includeExpensive bool) {
 // printRunningBlocked는 실행 중이라 제외된 앱을 모아 보여준다.
 // 사용자가 "앱을 끄고 다시 돌릴지" 판단하려면 몇 개가 얼마나 걸려 있는지 알아야 한다.
 func printRunningBlocked(w io.Writer, res *Result) {
+	if res.RunningCheckFailed {
+		// 보호가 꺼졌다는 사실을 리포트에도 남긴다 — 조용히 사라지면 안 된다.
+		fmt.Fprintf(w, "\n  ⚠️  실행 중인 앱을 확인할 수 없었습니다 (ps 조회 실패)"+
+			" — Electron 캐시 보호가 동작하지 않습니다.\n")
+		fmt.Fprintf(w, "     정리 전에 앱을 모두 종료하세요.\n")
+		return
+	}
 	usage := RunningBlockedUsage(res.Entries)
 	if len(usage) == 0 {
 		return
