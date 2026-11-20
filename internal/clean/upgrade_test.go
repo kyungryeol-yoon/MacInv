@@ -3,7 +3,7 @@ package clean
 import (
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // npm 셀프 업데이트는 npx 경유 명령이어야 한다(자기 파일 삭제로 인한 MODULE_NOT_FOUND 방지).

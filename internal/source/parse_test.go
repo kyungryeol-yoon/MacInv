@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 func readFixture(t *testing.T, name string) []byte {

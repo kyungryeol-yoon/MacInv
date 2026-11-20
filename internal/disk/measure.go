@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // duTimeoutSec는 위치 하나의 용량 측정 타임아웃이다.

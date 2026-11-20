@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // EOL(지원 종료) 정보는 endoflife.date에서 가져온다.
@@ -41,7 +41,7 @@ const (
 	UpdateMajor   = report.UpdateMajor
 )
 
-// EOLBadge/UpdateBadge는 report의 것을 그대로 노출한다(CLI/TUI 공용).
+// EOLBadge/UpdateBadge는 report의 것을 그대로 노출한다(CLI/UI 공용).
 var (
 	EOLBadge    = report.EOLBadge
 	UpdateBadge = report.UpdateBadge

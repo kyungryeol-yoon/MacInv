@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// PlanLine은 삭제 계획의 한 줄이다(CLI 텍스트·TUI 모달이 공유하는 구조화 표현).
+// PlanLine은 삭제 계획의 한 줄이다(CLI 텍스트·UI가 공유하는 구조화 표현).
 // Toggleable이 true면 그 줄은 [확신낮음] 잔여 경로로, 사용자가 켜야만 삭제 대상이 된다.
 type PlanLine struct {
 	Text       string // 렌더용 텍스트(들여쓰기 포함, 배지 제외)
@@ -15,11 +15,11 @@ type PlanLine struct {
 	Toggleable bool   // 확신낮음 경로 → 체크박스 대상
 }
 
-// PlanLines는 계획을 구조화된 줄 목록으로 만든다(CLI/TUI 공용 단일 소스).
+// PlanLines는 계획을 구조화된 줄 목록으로 만든다(CLI/UI 공용 단일 소스).
 func PlanLines(p *Plan) []PlanLine {
 	var lines []PlanLine
 	// 계획 전체 경고를 맨 앞에 — 타깃 목록에 묻히면 승인 전에 못 본다.
-	// PlanLines에 넣어야 CLI 텍스트와 TUI 모달이 같은 것을 보여준다.
+	// PlanLines에 넣어야 CLI 텍스트와 UI가 같은 것을 보여준다.
 	for _, w := range p.Warnings {
 		lines = append(lines, PlanLine{Kind: "planwarning", Text: "⚠️  " + w})
 	}
@@ -56,7 +56,7 @@ func PlanLines(p *Plan) []PlanLine {
 	return lines
 }
 
-// RenderPlanText는 계획을 CLI 블록 문자열로 렌더링한다(TUI 모달과 동일 내용을 보장).
+// RenderPlanText는 계획을 CLI 블록 문자열로 렌더링한다(UI와 동일 내용을 보장).
 func RenderPlanText(p *Plan) string {
 	line := strings.Repeat("─", 62)
 	var b strings.Builder
@@ -99,7 +99,7 @@ func quoteArg(a string) string {
 	return "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 }
 
-// KindLabel은 타깃 종류의 한국어 라벨이다(CLI/TUI 공용).
+// KindLabel은 타깃 종류의 한국어 라벨이다(CLI/UI 공용).
 func KindLabel(kind string) string {
 	switch kind {
 	case KindApp:
@@ -125,7 +125,7 @@ func KindLabel(kind string) string {
 	}
 }
 
-// ConfBadge는 확신도 배지다(CLI/TUI 공용).
+// ConfBadge는 확신도 배지다(CLI/UI 공용).
 func ConfBadge(conf string) string {
 	switch conf {
 	case ConfMedium:

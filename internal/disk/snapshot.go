@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // APFS 로컬 스냅샷은 "지웠는데 용량이 안 늘어나는" 가장 흔한 이유다.

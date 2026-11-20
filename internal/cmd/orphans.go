@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/clean"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 func newOrphansCmd() *cobra.Command {

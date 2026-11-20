@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // KindMas는 App Store(mas) 앱 타깃이다(업데이트 전용).
@@ -19,7 +19,7 @@ const upgradeTimeoutSec = 1800
 
 // BuildUpgradePlan은 name을 최신 버전으로 올리는 계획을 만든다(읽기 전용).
 // 소스별 네이티브 업그레이드 명령만 담고 삭제/휴지통은 없다. Execute·RenderPlanText를 삭제와 공유한다.
-// 4개 소스 프로브(각각 외부 명령 1회)는 서로 독립이라 병렬로 조회한다 — TUI 모달 대기시간 단축.
+// 4개 소스 프로브(각각 외부 명령 1회)는 서로 독립이라 병렬로 조회한다 — 계획 생성 대기시간 단축.
 func BuildUpgradePlan(ctx context.Context, run *iexec.Runner, name string) *Plan {
 	plan := &Plan{Query: name, Verb: "업데이트", Icon: "⬆️"}
 
@@ -186,7 +186,7 @@ func UpgradePlanFromOutdated(rows []report.OutdatedRow) *Plan {
 	return plan
 }
 
-// BuildCombinedUpgradePlan은 여러 대상의 업데이트 계획을 하나로 합친다(TUI 멀티선택용).
+// BuildCombinedUpgradePlan은 여러 대상의 업데이트 계획을 하나로 합친다(여러 개 선택용 — UI가 쓴다).
 func BuildCombinedUpgradePlan(ctx context.Context, run *iexec.Runner, names []string) *Plan {
 	combined := &Plan{Query: strings.Join(names, ", "), Verb: "업데이트", Icon: "⬆️"}
 	for _, n := range names {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
 )
 
 // 이름 매칭: 정확 일치가 있으면 그것만, 없으면 부분일치 + exact=false(호출자가 경고 표시).

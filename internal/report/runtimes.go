@@ -73,7 +73,7 @@ const (
 	UpdateMajor   = "major"   // 더 최신 메이저가 있음 — 깨질 수 있어 자동 실행 대상 아님
 )
 
-// EOLBadge는 지원 종료 상태 배지다(순수 함수 — CLI/TUI 공용).
+// EOLBadge는 지원 종료 상태 배지다(순수 함수 — CLI/UI 공용).
 // now를 받아 "몇 개월 뒤"를 계산한다. 상태를 모르면 빈 문자열(아무 말도 하지 않는다).
 func EOLBadge(status, eolDate string, now time.Time) string {
 	switch status {
@@ -103,7 +103,7 @@ func monthsUntil(now, t time.Time) int {
 	return m
 }
 
-// UpdateBadge는 업데이트 상태 배지다(순수 함수 — CLI/TUI 공용).
+// UpdateBadge는 업데이트 상태 배지다(순수 함수 — CLI/UI 공용).
 // 메이저는 "최신은 X"로만 알린다 — 올리라는 지시가 아니라 판단 근거다.
 func UpdateBadge(status, latestCycle string) string {
 	switch status {

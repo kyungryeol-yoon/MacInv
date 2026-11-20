@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"sort"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // pipxSource는 pipx 설치 앱을 스캔한다.

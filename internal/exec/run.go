@@ -1,5 +1,5 @@
 // Package exec는 외부 네이티브 명령을 안전하게 호출하는 공통 헬퍼다.
-// 프로토타입 mac_inventory.py의 run()/run_json() 규칙을 계승한다:
+// 옛 Python 프로토타입의 run()/run_json() 규칙을 계승한다:
 //   - 실패해도 panic 하지 않고 (출력, error)를 돌려준다.
 //   - 경고는 전역 Recorder에 모아 리포트의 errors 필드로 내보낸다.
 //   - npm처럼 문제가 없어도 exit 1을 내는 명령을 위해 허용 종료코드를 지정할 수 있다.
@@ -115,7 +115,7 @@ func (r *Runner) Run(ctx context.Context, opt Opt, name string, args ...string) 
 			}
 			r.Rec.Add(fmt.Sprintf("%s: exit %d %s", label, code, detail))
 			if detail != "" {
-				// 호출자(CLI/TUI 로그)가 원인을 볼 수 있게 상세를 에러에 포함한다.
+				// 호출자(CLI/UI 로그)가 원인을 볼 수 있게 상세를 에러에 포함한다.
 				return "", fmt.Errorf("exit %d: %s", code, detail)
 			}
 			return "", err

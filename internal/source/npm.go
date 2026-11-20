@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // npmSource는 npm 글로벌 패키지를 스캔한다.

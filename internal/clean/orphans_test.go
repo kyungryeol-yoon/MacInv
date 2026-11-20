@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 func TestClassifyOrphan(t *testing.T) {

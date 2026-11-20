@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // TrashResult는 경로 하나의 휴지통 이동 결과다.

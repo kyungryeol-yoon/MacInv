@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 실패 시 에러 메시지에 stderr 원인이 포함되어야 한다(CLI/TUI 로그에 원인 표시용).
+// 실패 시 에러 메시지에 stderr 원인이 포함되어야 한다(CLI/UI 로그에 원인 표시용).
 func TestRunErrorIncludesStderr(t *testing.T) {
 	rec := &Recorder{}
 	r := NewRunner(rec, 10)

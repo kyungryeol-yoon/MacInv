@@ -1,4 +1,4 @@
-// Package report는 인벤토리 JSON 스키마(프로토타입 mac_inventory.py 준수)와
+// Package report는 인벤토리 JSON 스키마(옛 Python 프로토타입과 호환)와
 // 리포트 조립 로직을 담는다. null이 될 수 있는 필드는 포인터로 두어 JSON에서 null로 나가게 한다.
 package report
 

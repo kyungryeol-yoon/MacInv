@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // goBinSource는 $GOBIN(또는 ~/go/bin)의 실행 파일을 스캔한다. 외부 명령을 쓰지 않는다.

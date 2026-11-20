@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // masSource는 App Store(mas) 설치 앱과 업데이트 대기 목록을 스캔한다.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // 사이클 자릿수가 제각각이라(3.9 / 26 / 1.26) 가장 긴 접두사 일치로 골라야 한다.

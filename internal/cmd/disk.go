@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
-	"github.com/kyungryeol-yoon/macinv/internal/disk"
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/clean"
+	"github.com/kyungryeol-yoon/MacInv/internal/disk"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 type diskFlags struct {

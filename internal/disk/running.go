@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // 실행 중인 Electron 앱 보호.

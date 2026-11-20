@@ -127,7 +127,7 @@ func printSizeSummary(w io.Writer, line string, apps []App) {
 	fmt.Fprintf(w, "\n  데이터가 큰 앱은 `macinv clean <이름>`으로 지울 항목을 확인할 수 있습니다.\n")
 }
 
-// SizeBreakdown은 "번들 300 MB + 데이터 67.3 GB" 꼴의 내역 문자열을 만든다(CLI 요약/TUI 공용).
+// SizeBreakdown은 "번들 300 MB + 데이터 67.3 GB" 꼴의 내역 문자열을 만든다(CLI 요약/UI 공용).
 // 합계만 보면 무엇을 지워야 줄어드는지 알 수 없다 — 번들은 앱을 지워야 줄고,
 // 데이터는 clean으로 줄일 여지가 있다. 데이터가 없거나 0이면 내역을 생략한다.
 func SizeBreakdown(a App) string {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
 )
 
 // --deep은 "알려진 위치" 밖을 뒤진다. 기본 스캔이 3초 안에 끝나야 하므로 옵트인이다.

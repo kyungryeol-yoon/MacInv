@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // 관리 주체(Manager) 값. M4 runtimes에서도 재사용한다.
@@ -29,7 +29,7 @@ const (
 	MgrSdkman = "sdkman"
 )
 
-// Origin 타입은 report 패키지로 이동했다(scan/tui가 import 순환 없이 쓰도록). 별칭으로 노출한다.
+// Origin 타입은 report 패키지로 이동했다(source/cmd가 import 순환 없이 쓰도록). 별칭으로 노출한다.
 type Origin = report.Origin
 
 // TraceEnv는 분류에 필요한 환경 정보다(테스트에서 주입 가능하도록 분리).

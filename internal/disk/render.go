@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // PrintSummary는 disk 결과를 한국어 요약으로 출력한다.

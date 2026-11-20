@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // cargoSource는 cargo install --list 결과를 스캔한다.

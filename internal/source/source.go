@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // 소스 이름 상수. ScanAll 결과 맵의 키이자 report 조립 시 참조된다.

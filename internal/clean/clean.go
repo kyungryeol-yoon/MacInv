@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
 )
 
 // 경로 판별·매칭은 저수준 paths 패키지가 담당한다(source도 같은 것을 쓴다).
@@ -152,7 +152,7 @@ func (p *Plan) WithSelectedLow(enabled map[string]bool) *Plan {
 	return out
 }
 
-// BuildCombinedPlan은 여러 대상의 삭제 계획을 하나로 합친다(TUI 멀티선택용, 읽기 전용).
+// BuildCombinedPlan은 여러 대상의 삭제 계획을 하나로 합친다(여러 개 선택용 — UI가 쓴다, 읽기 전용).
 func BuildCombinedPlan(ctx context.Context, run *iexec.Runner, names []string) *Plan {
 	combined := &Plan{Query: strings.Join(names, ", "), Verb: "삭제", Icon: "🧹"}
 	for _, n := range names {

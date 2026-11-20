@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/clean"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // KindDisk는 디스크 정리 타깃이다(clean.Plan 안에서 구분용).
@@ -24,7 +24,7 @@ const cleanupTimeoutSec = 900
 // 블랙리스트 재확인, 권한 분리, 확인 절차)이 두 벌이 되면 안 되기 때문이다.
 // 여기서 하는 일은 "어떤 위치를 담을지" 고르는 것뿐이다.
 //
-// selected가 nil이 아니면 그 ID만 담는다(TUI 멀티선택). includeExpensive가 false면
+// selected가 nil이 아니면 그 ID만 담는다(UI 멀티선택). includeExpensive가 false면
 // expensive 등급은 제외한다(clean의 --include-low와 같은 패턴). never는 언제나 제외.
 // includeRunning이 false면 소유 앱이 실행 중인 경로를 빼고 보존 사유를 남긴다 —
 // Chromium은 캐시 핸들을 연 채로 돌아서 켜져 있을 때 지우면 앱이 오작동한다.

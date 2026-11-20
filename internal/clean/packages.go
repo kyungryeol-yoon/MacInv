@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // 패키지 매니저로 설치된 항목의 타깃 종류.

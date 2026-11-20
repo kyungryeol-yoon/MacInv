@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 func TestParseDuSizes(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
 )
 
 //go:embed data/locations.json
@@ -34,7 +34,7 @@ const (
 	TierNever     = "never"     // 소스·사용자 데이터 — 어떤 경우에도 정리하지 않는다
 )
 
-// TierLabel은 등급의 한국어 라벨이다(CLI/TUI 공용).
+// TierLabel은 등급의 한국어 라벨이다(CLI/UI 공용).
 func TierLabel(tier string) string {
 	switch tier {
 	case TierSafe:

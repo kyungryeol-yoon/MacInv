@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // 고아 캐시 = 캐시 디렉토리는 남아 있는데 그걸 만든 도구가 인벤토리에 없는 상태.

@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
-	"github.com/kyungryeol-yoon/macinv/internal/source"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/source"
 )
 
 type outdatedFlags struct {

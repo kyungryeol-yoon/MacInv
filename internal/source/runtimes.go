@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // Runtime 타입은 report 패키지로 이동했다. 별칭으로 노출한다.

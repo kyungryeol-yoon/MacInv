@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // launchdSource는 LaunchAgents/LaunchDaemons plist를 스캔한다(백그라운드 잔존물 후보).

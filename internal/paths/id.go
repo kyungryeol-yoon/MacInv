@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 // teamIDPrefixRe는 개발자 팀 ID 접두사다(예: HUAQ24HBR6.dev.orbstack, UBF8T346G9.Office).

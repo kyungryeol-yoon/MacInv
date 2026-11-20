@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
+	"github.com/kyungryeol-yoon/MacInv/internal/clean"
 )
 
 func TestParseRunningApps(t *testing.T) {
@@ -260,7 +260,7 @@ func TestPlanWarnsWhenRunningCheckFailed(t *testing.T) {
 		t.Error("조회 성공인데 경고가 붙음")
 	}
 
-	// 경고는 계획 렌더 **맨 앞**에 나와야 승인 전에 보인다(CLI·TUI 공용 PlanLines 경유).
+	// 경고는 계획 렌더 **맨 앞**에 나와야 승인 전에 보인다(CLI·UI 공용 PlanLines 경유).
 	lines := clean.PlanLines(BuildCleanupPlan(failed, nil, false, false))
 	if len(lines) == 0 || lines[0].Kind != "planwarning" {
 		t.Errorf("경고가 계획 상단에 없음: %+v", lines[:1])

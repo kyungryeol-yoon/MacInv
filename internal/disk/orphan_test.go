@@ -3,7 +3,7 @@ package disk
 import (
 	"testing"
 
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // 핵심 회귀: CLI 도구는 없어도 GUI 앱이 그 캐시를 쓰면 고아가 아니다.

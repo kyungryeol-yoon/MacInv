@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
-	"github.com/kyungryeol-yoon/macinv/internal/source"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
+	"github.com/kyungryeol-yoon/MacInv/internal/source"
 )
 
 type scanFlags struct {
@@ -25,7 +25,7 @@ type scanFlags struct {
 	output     string
 }
 
-// collectOpts는 인벤토리 수집 동작 옵션이다(scan/tui 공용).
+// collectOpts는 인벤토리 수집 동작 옵션이다(scan 등 공용).
 type collectOpts struct {
 	WithSize    bool
 	NoOutdated  bool
@@ -35,7 +35,7 @@ type collectOpts struct {
 	Progress func(stage string, done, total int)
 }
 
-// collectInventory는 전체 인벤토리를 수집해 report.Report로 조립한다(scan/tui 공용, 출력은 하지 않음).
+// collectInventory는 전체 인벤토리를 수집해 report.Report로 조립한다(출력은 하지 않음).
 func collectInventory(ctx context.Context, run *iexec.Runner, rec *iexec.Recorder, opt collectOpts) *report.Report {
 	step := opt.Step
 	if step == nil {
@@ -177,46 +177,6 @@ func runScan(ctx context.Context, f scanFlags) error {
 		fmt.Fprintf(os.Stdout, "📄 상세 리포트: %s\n", abs)
 	}
 	return nil
-}
-
-// PersistReport는 리포트를 기본 캐시 경로(~/.macinv/inventory.json)에 기록한다(TUI 동기화용).
-// GeneratedAt을 기록 시점으로 갱신해 캐시의 신선도를 반영한다.
-func PersistReport(rep *report.Report) error {
-	rep.GeneratedAt = time.Now().Format(time.RFC3339)
-	data, err := json.MarshalIndent(rep, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFile(defaultCachePath(), data)
-}
-
-// RescanSources는 지정한 소스만 다시 스캔해 그 섹션이 채워진 report를 돌려준다(TUI 부분 재스캔용).
-// names가 비면 전체 스캔과 동일. brew/npm은 outdated 보강까지 한다.
-func RescanSources(ctx context.Context, run *iexec.Runner, rec *iexec.Recorder, names []string) *report.Report {
-	all := source.Default(run, source.Options{WithSize: true})
-	var sel []source.Source
-	if len(names) == 0 {
-		sel = all
-	} else {
-		want := map[string]bool{}
-		for _, n := range names {
-			want[n] = true
-		}
-		for _, s := range all {
-			if want[s.Name()] {
-				sel = append(sel, s)
-			}
-		}
-	}
-	results := source.ScanAll(ctx, sel, rec)
-	sections := buildSections(results)
-	if sections.Brew != nil {
-		source.EnrichBrew(ctx, run, sections.Brew)
-	}
-	if sections.Npm != nil {
-		source.EnrichNpm(ctx, run, sections.Npm)
-	}
-	return &report.Report{Sections: sections}
 }
 
 // buildSections는 ScanAll 결과 맵을 타입 있는 Sections로 조립한다.

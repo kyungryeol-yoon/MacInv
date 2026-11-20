@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // appsSource는 /Applications 등지의 *.app을 스캔한다.

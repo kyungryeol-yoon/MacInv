@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyungryeol-yoon/macinv/internal/clean"
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/clean"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
 )
 
 func sampleResult() *Result {
@@ -77,7 +77,7 @@ func TestBuildCleanupPlanIncludeExpensive(t *testing.T) {
 	}
 }
 
-// TUI 멀티선택: 고른 ID만 담는다.
+// UI 멀티선택: 고른 ID만 담는다.
 func TestBuildCleanupPlanSelected(t *testing.T) {
 	plan := BuildCleanupPlan(sampleResult(), map[string]bool{"npm-cache": true}, false, false)
 	if len(plan.Targets) != 1 || !strings.Contains(plan.Targets[0].Name, "npm") {

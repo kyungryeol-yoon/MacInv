@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
-	"github.com/kyungryeol-yoon/macinv/internal/report"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
+	"github.com/kyungryeol-yoon/MacInv/internal/report"
 )
 
 // 회수 예상 = "이번 삭제로 실제로 비는 용량".

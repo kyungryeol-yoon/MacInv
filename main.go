@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kyungryeol-yoon/macinv/internal/cmd"
+	"github.com/kyungryeol-yoon/MacInv/internal/cmd"
 )
 
 func main() {

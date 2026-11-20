@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	iexec "github.com/kyungryeol-yoon/macinv/internal/exec"
-	"github.com/kyungryeol-yoon/macinv/internal/paths"
+	iexec "github.com/kyungryeol-yoon/MacInv/internal/exec"
+	"github.com/kyungryeol-yoon/MacInv/internal/paths"
 )
 
 // KindOrphan은 고아 잔여물(지워진 앱이 남긴 데이터) 타깃이다.
