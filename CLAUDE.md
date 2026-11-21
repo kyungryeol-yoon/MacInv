@@ -9,7 +9,7 @@ macOS에 설치된 소프트웨어 전체를 스캔해 "내 맥에 뭐가 어디
 | 형태 | 메뉴 막대 앱(SwiftUI `MenuBarExtra`). 터미널 CLI는 버린다(2026-11-20) |
 | 구현 | **Swift로 완전히 새로 짠다**(2026-11-21). Go 엔진을 호출하지 않는다. 지금 Go 코드는 이식 대상이 아니라 **요구사항·교훈의 출처** — Swift 앱이 같은 일을 하게 되면 지운다 |
 | 번들 ID | `io.github.kyungryeol-yoon.macinv` — 개인 앱 공통 규칙 `io.github.kyungryeol-yoon.<앱>`(Hum·DiSwitch와 같음). **바꾸면 설정·권한 허용이 사라지니 고정** |
-| 서명 | ad-hoc으로 시작(DiSwitch·Hum과 같음). 업데이트 후 전체 디스크 접근 허용이 풀리는 게 실측되면 고정 자체 서명 인증서로 바꾼다 |
+| 서명 | ad-hoc(DiSwitch·Hum과 같음, 인증서 없음 — 2026-11-21 다시 확인하고 유지). **실측: 권한 허용은 cdhash에 묶여 다시 빌드하면 풀린다**(설정 목록엔 켜져 있어도 적용 안 됨), 그리고 **켠 뒤 다시 시작해야 적용된다**. 앱은 메뉴를 열 때마다 다시 확인하고 "다시 시작"·"지웠다 다시 추가" 안내를 띄운다. 개발 중엔 터미널에 전체 디스크 접근을 주지 않는다(그 안의 모든 명령이 권한을 갖게 되므로) — 권한이 필요한 시험 때만 설정에서 MacInv를 지웠다 다시 추가. 배포 후 업데이트마다 다시 켜는 게 번거로우면 7단계에서 고정 자체 서명 인증서(로그인 키체인, `.p12` 백업, Actions Secret)로 바꾼다 |
 | 배포 | `kyungryeol-yoon/homebrew-tap`의 Cask `macinv`. 틀은 DiSwitch(`packaging/diswitch.rb`, 태그 → Actions → tap 갱신)를 따른다 |
 | 라이선스 | MIT(저작권자 「Yoon」, Hum·DiSwitch와 같음) |
 | 이름 | 보이는 이름·저장소·Go 모듈은 `MacInv`. 소문자 — Cask 이름 `macinv`(소문자만 허용), 실행 파일 이름. 캐시는 아직 `~/.macinv/`(Swift 앱에선 `~/Library/Application Support/MacInv`가 자연스럽다 — 정할 때 옛 위치는 새로 시작해도 된다, 2026-11-21 비움) |
@@ -18,6 +18,20 @@ macOS에 설치된 소프트웨어 전체를 스캔해 "내 맥에 뭐가 어디
 - 커밋·푸시·tap 저장소 변경은 사용자가 요청할 때만. 설명은 한국어
 - 앱 아이콘(2026-11-21 정함, 시안 「F1」): **밝은 목록 카드 하나에 3줄**(앱 타일 주황·파랑·보라 + 용량 막대) **+ 줄 끝 상태 배지 ↑ 업데이트(파랑) · ✓ 최신(초록) · − 삭제(빨강)** — 확인·업데이트·삭제를 한 그림에, 메뉴 막대 `checklist`와 같은 "목록 + 줄 끝 상태". 바탕은 DiSwitch와 같은 어두운 824 둥근 사각형. 노트북 안에 넣은 안(E2)은 화면이 작아져 뺐고, 모니터 모양은 DiSwitch와 겹친다. **SF Symbol은 앱 아이콘에 쓰지 않는다**(애플 라이선스상 아이콘·로고 사용 금지 — 배지 기호도 도형으로 그림). 그리는 코드 `packaging/make-icon.swift` → `packaging/AppIcon.icns`. 시안 비교 페이지 https://claude.ai/artifact/G4cJcafM9sejmmTz6gUP2h
 - 메뉴 막대 아이콘(2026-11-21 정함): SF Symbol **`checklist`**(템플릿) — 노트북(`laptopcomputer`)은 메뉴 막대에서 눈에 안 띄어 뺐다. 업데이트·정리할 것이 있으면 점 등으로 상태 표시(방식은 3단계에서)
+
+## Swift 구현 (만드는 중)
+
+```bash
+swift test                 # MacInvCore 테스트(Swift Testing)
+./build.sh                 # build/MacInv.app + zip (ad-hoc 서명)
+open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /Applications에 설치
+```
+
+- `Sources/MacInvCore/` — 로직(화면 없음, 테스트 대상). `Command.swift`(실행기: 타임아웃, 미설치=`notFound`, 읽기는 stdout 있으면 성공·`strict`는 종료 코드로만), `SearchPath.swift`(GUI 앱 PATH = 로그인 셸 `-ilc`에서 표식으로 받아온 PATH → 알려진 위치), `Permissions.swift`(전체 디스크 접근 — 보호 경로를 실제로 열어 판정, 안내 판정 `notice`는 순수 함수), `SelfIdentity.swift`(자기 자신 판정: 번들 ID·번들 경로·`/Applications/MacInv.app`·데이터 경로·cask `macinv`)
+- `Sources/MacInv/` — 메뉴 막대 화면(SwiftUI)
+- `Tests/MacInvCoreTests/`
+- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 다음 2단계 인벤토리(읽기 전용) → 3 업데이트 대기 → 4 디스크 → 5 정리 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
+- 데이터 파일(`vendors.json`·`locations.json`)은 쓰는 단계(2·4)에서 리소스로 가져온다 — 그때 `build.sh`가 SwiftPM 리소스 번들을 앱에 복사하게 고칠 것
 
 ## 새 구현에서 처음부터 넣을 것
 
