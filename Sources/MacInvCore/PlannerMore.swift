@@ -183,6 +183,7 @@ extension Planner {
       let useTrash = loc.trash == true || (e.orphan && !(loc.cleanup ?? []).isEmpty)
       if !useTrash, let c = loc.cleanup, !c.isEmpty {
         t.commands = c
+        t.commandReclaimKB = e.sizeKB
         plan.extraReclaimKB += e.sizeKB    // 명령이 비울 몫 — 안 더하면 회수 예상이 실제보다 훨씬 작다
       } else if useTrash {
         for p in e.paths {
@@ -217,6 +218,7 @@ extension Planner {
       var t = PlanTarget(kind: .ollama, name: m.name)
       t.commands = [["ollama", "rm", m.name]]
       t.suggestions.append("다시 쓰려면 ollama pull \(m.name) — \(m.sizeKB / 1_048_576 > 0 ? "\(m.sizeKB / 1_048_576) GB" : "\(m.sizeKB / 1024) MB")를 다시 받아야 합니다.")
+      t.commandReclaimKB = m.sizeKB
       plan.targets.append(t)
       plan.extraReclaimKB += m.sizeKB
     }

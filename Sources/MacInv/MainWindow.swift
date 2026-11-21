@@ -75,7 +75,7 @@ struct MainWindow: View {
       .navigationTitle((section ?? .apps).title)
       .navigationSubtitle(subtitle)
       .searchable(text: $query, prompt: "이름으로 찾기")
-      .sheet(item: $model.shownPlan) { PlanSheet(shown: $0) }
+      .sheet(item: $model.shownPlan) { PlanSheet(shown: $0).interactiveDismissDisabled($0.phase == .running) }
       .toolbar {
         ToolbarItem {
           Button { model.scan() } label: { Label("다시 스캔", systemImage: "arrow.clockwise") }

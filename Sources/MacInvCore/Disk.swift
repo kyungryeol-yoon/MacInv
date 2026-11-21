@@ -125,7 +125,7 @@ public enum Disk {
   }
 
   /// `~/Library/Application Support/<앱>/…` → "<앱>" (Partitions 아래도 첫 마디라 앱 단위로 합쳐진다).
-  static func appSupportDirName(home: String, path: String) -> String? {
+  public static func appSupportDirName(home: String, path: String) -> String? {
     let base = "\(home)/Library/Application Support/"
     guard path.hasPrefix(base) else { return nil }
     return path.dropFirst(base.count).split(separator: "/").first.map(String.init)

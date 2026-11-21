@@ -6,7 +6,7 @@ macOS에 설치된 소프트웨어 전체를 스캔해 "내 맥에 뭐가 어디
 
 | 항목 | 결정 |
 |---|---|
-| 형태 | 메뉴 막대 앱(SwiftUI `MenuBarExtra`). 터미널 CLI는 버린다(2026-11-20) |
+| 형태 | 메뉴 막대 앱. 터미널 CLI는 버린다(2026-11-20). 메뉴 막대는 AppKit `NSStatusItem`(Hum과 같음) — 왼쪽 클릭 카드 패널(팝오버), **오른쪽 클릭 짧은 메뉴**(열기·다시 스캔·끝내기). SwiftUI `MenuBarExtra`는 오른쪽 클릭을 못 받아 바꿨다(2026-11-21 사용자 요청 — 무심코 오른쪽 클릭하는 습관). 목록 창도 AppKit `NSWindow` + `NSHostingController`(`sceneBridgingOptions = .all`로 툴바·검색창 연결) |
 | 구현 | **Swift로 완전히 새로 짠다**(2026-11-21). Go 엔진을 호출하지 않는다. 지금 Go 코드는 이식 대상이 아니라 **요구사항·교훈의 출처** — Swift 앱이 같은 일을 하게 되면 지운다 |
 | 번들 ID | `io.github.kyungryeol-yoon.macinv` — 개인 앱 공통 규칙 `io.github.kyungryeol-yoon.<앱>`(Hum·DiSwitch와 같음). **바꾸면 설정·권한 허용이 사라지니 고정** |
 | 서명 | ad-hoc(DiSwitch·Hum과 같음, 인증서 없음 — 2026-11-21 다시 확인하고 유지). **실측: 권한 허용은 cdhash에 묶여 다시 빌드하면 풀린다**(설정 목록엔 켜져 있어도 적용 안 됨), 그리고 **켠 뒤 다시 시작해야 적용된다**. 앱은 메뉴를 열 때마다 다시 확인하고 "다시 시작"·"지웠다 다시 추가" 안내를 띄운다. 개발 중엔 터미널에 전체 디스크 접근을 주지 않는다(그 안의 모든 명령이 권한을 갖게 되므로) — 권한이 필요한 시험 때만 설정에서 MacInv를 지웠다 다시 추가. 배포 후 업데이트마다 다시 켜는 게 번거로우면 7단계에서 고정 자체 서명 인증서(로그인 키체인, `.p12` 백업, Actions Secret)로 바꾼다 |
@@ -31,7 +31,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - `Sources/MacInvCore/` — 로직(화면 없음, 테스트 대상). `Command.swift`(실행기: 타임아웃, 미설치=`notFound`, 읽기는 stdout 있으면 성공·`strict`는 종료 코드로만), `SearchPath.swift`(GUI 앱 PATH = 로그인 셸 `-ilc`에서 표식으로 받아온 PATH → 알려진 위치), `Permissions.swift`(전체 디스크 접근 — 보호 경로를 실제로 열어 판정, 안내 판정 `notice`는 순수 함수), `SelfIdentity.swift`(자기 자신 판정: 번들 ID·번들 경로·`/Applications/MacInv.app`·데이터 경로·cask `macinv`)
 - `Sources/MacInv/` — 메뉴 막대 화면(SwiftUI)
 - `Tests/MacInvCoreTests/`
-- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 다음 5-2 고아 잔여물·디스크·Ollama·업데이트 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
+- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 5-2(업데이트·고아 잔여물·디스크·Ollama 계획) ✅ · 6(실행: `Executor.swift`, 확인 화면 → 로그 → 결과) ✅ · 다음 7 배포 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
 - 화면: 메뉴 막대는 요약·바로가기(창 열기·다시 스캔·권한 안내 — 단계마다 "손댈 게 있나"를 늘려 간다), 목록은 별도 창(왼쪽 분류 + 표)
 - `Paths.swift`는 측정(`sizePaths`)과 삭제 계획(`leftovers`, 5단계)이 **같이 쓰는 한 벌**. glob을 쓰지 않고 폴더 목록을 문자열로 비교(이름의 `[`·`*`·`?`가 패턴이 될 수 없음). 벤더 표는 `Vendors.swift`의 JSON 문자열(SwiftPM 리소스 번들은 .app 서명과 안 맞음)
 - **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행

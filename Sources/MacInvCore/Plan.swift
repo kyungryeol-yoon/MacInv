@@ -68,6 +68,8 @@ public struct PlanTarget: Sendable, Identifiable {
   public var excluded: [Exclusion] = []
   public var warnings: [String] = []
   public var suggestions: [String] = []
+  /// 명령이 비울 몫(휴지통 경로 밖) — 대상을 빼면 회수 예상에서도 빠지게 대상마다 둔다
+  public var commandReclaimKB = 0
   public init(kind: TargetKind, name: String, bundleID: String? = nil) { self.kind = kind; self.name = name; self.bundleID = bundleID }
 }
 
@@ -98,6 +100,15 @@ public struct Plan: Sendable {
       if let s = p.sizeKB { kb += s; any = true }
     }
     return any ? kb : nil
+  }
+
+  /// 사용자가 뺀 대상(id)을 걷어낸 사본
+  public func without(_ ids: Set<String>) -> Plan {
+    var p = self
+    p.targets.removeAll { ids.contains($0.id) }
+    p.extraReclaimKB = 0   // 명령 몫은 대상별로 다시 셀 수 없어 뺀 게 있으면 0부터 — 아래에서 대상 몫만 다시 더함
+    for t in p.targets { p.extraReclaimKB += t.commandReclaimKB }
+    return p
   }
 
   /// 실행 직전 사본: 확신낮음은 고른 것만 남긴다(기본은 전부 뺌)

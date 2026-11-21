@@ -102,6 +102,8 @@ struct PlannerMoreTests {
     #expect(p.targets[0].commands.first?.first == "npm" && p.extraReclaimKB == 500)
     #expect(p.targets[1].trash.map(\.sizeKB) == [100, 50])                 // 경로마다 제 용량(N배 부풀림 방지)
     #expect(p.reclaimKB(includeLow: []) == 650 && !p.requireConfirm)
+    let npmTarget = p.targets[0].id
+    #expect(p.without([npmTarget]).reclaimKB(includeLow: []) == 150 && p.without([npmTarget]).targets.count == 1)   // 뺀 대상은 회수 예상에서도 빠짐
     let withExp = Planner.diskCleanup(r, includeExpensive: true, env: env())
     #expect(withExp.targets.count == 3 && withExp.requireConfirm)
   }

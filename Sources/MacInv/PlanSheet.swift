@@ -1,13 +1,17 @@
 import SwiftUI
 import MacInvCore
 
-/// 정리 계획 보기 — **읽기 전용.** 무엇이 어디로 가는지(휴지통·네이티브 명령), 무엇을 왜 남기는지를 보여 준다.
-/// 실행 버튼은 6단계에서 연결한다. [확신낮음]은 기본 해제(직접 골라야 포함).
+/// 실행 전 확인 화면 → 실행 로그 → 결과. 무엇이 어디로 가는지(휴지통·네이티브 명령), 무엇을 왜 남기는지를 먼저 보여 주고,
+/// 명시적으로 누를 때만 실행한다(엔터·더블클릭에 묶지 않음). [확신낮음]은 기본 해제. 되돌리기 어려운 것은 한 번 더 묻는다.
 struct PlanSheet: View {
   let shown: ShownPlan
-  @Environment(\.dismiss) private var dismiss
+  @EnvironmentObject private var model: AppModel
   @State private var low: Set<String> = []
-  private var plan: Plan { shown.plan }
+  @State private var confirming = false
+  /// 사용자가 뺀 대상 — 대상이 여럿일 때 하나씩 뺄 수 있다(고아 잔여물에서 모르는 이름 등)
+  @State private var skipped: Set<String> = []
+  private var plan: Plan { shown.plan.without(skipped) }
+  private var full: Plan { shown.plan }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -15,17 +19,24 @@ struct PlanSheet: View {
         Image(systemName: plan.verb == "업데이트" ? "arrow.up.circle" : "trash").font(.title2).foregroundStyle(.secondary)
         VStack(alignment: .leading, spacing: 2) {
           Text(plan.title).font(.title3.weight(.semibold))
-          Text("실행하기 전에 무엇을 하는지 확인하세요 — 아직 아무것도 \(plan.verb == "업데이트" ? "바꾸지" : "지우지") 않았습니다").font(.caption).foregroundStyle(.secondary)
+          Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
       }
       .padding(16)
       Divider()
+      if shown.phase != .review {
+        ExecLog(lines: shown.lines)
+      } else {
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
           ForEach(plan.refusals, id: \.self) { Callout(symbol: "lock.fill", color: .secondary, text: $0) }
           ForEach(plan.warnings, id: \.self) { Callout(symbol: "exclamationmark.triangle.fill", color: .orange, text: $0) }
-          ForEach(plan.targets) { TargetSection(target: $0, low: $low, measuring: shown.measuring) }
+          ForEach(full.targets) { t in
+            TargetSection(target: t, low: $low, measuring: shown.measuring,
+                          included: full.targets.count > 1 ? Binding(get: { !skipped.contains(t.id) },
+                                                                     set: { if $0 { skipped.remove(t.id) } else { skipped.insert(t.id) } }) : nil)
+          }
           if !plan.held.isEmpty {
             Group2(title: "이번에 빼 둔 것 \(plan.held.count)개 — 필요하면 직접 하세요") {
               ForEach(plan.held) { h in
@@ -41,13 +52,42 @@ struct PlanSheet: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+      }
       Divider()
       footer.padding(16)
     }
     .frame(minWidth: 640, idealWidth: 720, minHeight: 420, idealHeight: 560)
   }
 
-  private var footer: some View {
+  private var subtitle: String {
+    switch shown.phase {
+    case .review: return "실행하기 전에 무엇을 하는지 확인하세요 — 아직 아무것도 \(plan.verb == "업데이트" ? "바꾸지" : "지우지") 않았습니다"
+    case .running: return "진행 중… 끝날 때까지 이 창을 닫지 않습니다"
+    case .done: return "끝났습니다 — 닫으면 목록을 다시 스캔합니다"
+    }
+  }
+
+  @ViewBuilder private var footer: some View {
+    switch shown.phase {
+    case .review: reviewFooter
+    case .running:
+      HStack { ProgressView().controlSize(.small); Text("\(shown.lines.filter { $0.state != .running }.count)개 끝남").foregroundStyle(.secondary); Spacer() }
+    case .done(let s):
+      HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("성공 \(s.ok)" + (s.failed > 0 ? " · 실패 \(s.failed)" : "") + (s.skipped > 0 ? " · 건너뜀 \(s.skipped)" : ""))
+            .foregroundStyle(s.failed > 0 ? .orange : .primary)
+          if s.trashed > 0 { Text("휴지통으로 \(s.trashed)개 옮겼습니다 — 휴지통을 비워야 공간이 실제로 늘어납니다. 비우기 전엔 되돌릴 수 있습니다.").font(.caption).foregroundStyle(.secondary) }
+          if s.selfUpdated { Text("MacInv가 업데이트됐습니다 — 다시 시작해야 새 버전이 됩니다.").font(.caption).foregroundStyle(.secondary) }
+        }
+        Spacer()
+        if s.selfUpdated { Button("다시 시작") { model.relaunch() } }
+        Button("닫기") { model.closePlan() }.keyboardShortcut(.cancelAction)
+      }
+    }
+  }
+
+  private var reviewFooter: some View {
     HStack(alignment: .center, spacing: 12) {
       VStack(alignment: .leading, spacing: 2) {
         if plan.hasWork {
@@ -63,8 +103,55 @@ struct PlanSheet: View {
         }
       }
       Spacer()
-      Button("닫기") { dismiss() }.keyboardShortcut(.cancelAction)
-      Button(plan.verb) {}.disabled(true).help("실행은 다음 단계(6단계)에서 연결합니다")
+      Button("취소") { model.closePlan() }.keyboardShortcut(.cancelAction)
+      Button(plan.verb) { if plan.requireConfirm { confirming = true } else { model.execute(low: low, skip: skipped) } }
+        .buttonStyle(.borderedProminent)
+        .tint(plan.verb == "업데이트" ? .accentColor : .red)
+        .disabled(!plan.hasWork)
+    }
+    .confirmationDialog(confirmTitle, isPresented: $confirming) {
+      Button(plan.verb, role: plan.verb == "업데이트" ? nil : .destructive) { model.execute(low: low, skip: skipped) }
+      Button("취소", role: .cancel) {}
+    } message: { Text(confirmMessage) }
+  }
+
+  private var confirmTitle: String {
+    plan.targets.contains { $0.kind == .ollama } ? "모델을 지울까요?" : plan.targets.contains { $0.kind == .orphan } ? "고아 잔여물을 옮길까요?"
+      : plan.targets.contains { $0.kind == .disk } ? "재다운로드가 비싼 것도 정리할까요?" : "\(plan.title)할까요?"
+  }
+
+  private var confirmMessage: String {
+    if plan.targets.contains(where: { $0.kind == .ollama }) { return "ollama rm은 휴지통을 거치지 않습니다 — 다시 쓰려면 모델을 다시 받아야 합니다." }
+    if plan.targets.contains(where: { $0.kind == .orphan }) { return "설치된 앱이 없는 것으로 보이는 \(plan.targets.count)개의 파일을 휴지통으로 옮깁니다. 휴지통을 비우기 전엔 되돌릴 수 있습니다." }
+    if plan.targets.contains(where: { $0.kind == .disk }) { return "다시 받는 데 오래 걸리거나 용량이 큰 것이 들어 있습니다." }
+    return "앱을 지우면 설정·데이터도 함께 휴지통으로 갑니다. brew가 지우는 것은 휴지통을 거치지 않습니다."
+  }
+}
+
+/// 실행 로그 — 한 줄에 하나, 진행 중·성공·건너뜀·실패와 이유
+private struct ExecLog: View {
+  let lines: [ExecLine]
+  var body: some View {
+    ScrollViewReader { proxy in
+      List(lines) { l in
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Group {
+            switch l.state {
+            case .running: ProgressView().controlSize(.mini)
+            case .ok: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .skipped: Image(systemName: "pause.circle.fill").foregroundStyle(.secondary)
+            case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            }
+          }
+          .frame(width: 16)
+          VStack(alignment: .leading, spacing: 1) {
+            Text(l.text.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.system(.callout, design: .monospaced)).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+            if let d = l.detail { Text(d).font(.caption).foregroundStyle(l.state == .failed ? .red : .secondary).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
+          }
+        }
+        .id(l.id)
+      }
+      .onChange(of: lines.count) { _, _ in if let last = lines.last { proxy.scrollTo(last.id, anchor: .bottom) } }
     }
   }
 }
@@ -73,13 +160,16 @@ private struct TargetSection: View {
   let target: PlanTarget
   @Binding var low: Set<String>
   let measuring: Bool
+  /// 대상이 여럿이면 체크박스로 넣고 뺀다
+  var included: Binding<Bool>? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
         Text(target.kind.label).font(.caption.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 2)
           .background(Color.secondary.opacity(0.15), in: Capsule())
-        Text(target.name).font(.headline)
+        if let included { Toggle("", isOn: included).toggleStyle(.checkbox).labelsHidden() }
+        Text(target.name).font(.headline).foregroundStyle(included?.wrappedValue == false ? .secondary : .primary)
         if let id = target.bundleID { Text(id).font(.caption).foregroundStyle(.secondary) }
       }
       ForEach(target.warnings, id: \.self) { Callout(symbol: "exclamationmark.triangle.fill", color: .orange, text: $0) }

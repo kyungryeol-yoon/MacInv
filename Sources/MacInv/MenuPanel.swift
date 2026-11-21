@@ -5,7 +5,6 @@ import MacInvCore
 /// 카드 모양은 같은 개발자의 Hum과 맞춘다(둥근 10, 옅은 바탕, 얇은 테두리, 색 아이콘 칸).
 struct MenuPanel: View {
   @EnvironmentObject private var model: AppModel
-  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -33,7 +32,7 @@ struct MenuPanel: View {
         Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
       }
       Spacer()
-      Button { model.open(.apps, using: openWindow) } label: { Text("열기").frame(minWidth: 44) }
+      Button { model.open(.apps) } label: { Text("열기").frame(minWidth: 44) }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut("o")
     }
@@ -56,7 +55,7 @@ struct MenuPanel: View {
       PanelCard(symbol: "arrow.up.circle.fill", color: n > 0 ? .blue : .green, title: "업데이트",
                 value: n == 0 ? "최신" : "\(n)개",
                 details: n == 0 ? ["brew · npm · App Store 모두 최신"] : [sourceLine(o), majors > 0 ? "⚠️ 런타임 메이저 \(majors)개 — 따로 확인" : nil].compactMap { $0 },
-                action: n > 0 ? { model.open(.updates, using: openWindow) } : nil)
+                action: n > 0 ? { model.open(.updates) } : nil)
     } else {
       PanelCard(symbol: "arrow.up.circle.fill", color: .secondary, title: "업데이트", value: "", details: ["확인 중…"], action: nil)
     }
@@ -78,7 +77,7 @@ struct MenuPanel: View {
       if !blocked.isEmpty { details.append("⏸ 실행 중이라 뺌: " + blocked.prefix(2).map { "\($0.name) \(sizeText($0.kb))" }.joined(separator: " · ")) }
       if orphans > 0 { details.append("⚠️ 고아 캐시 \(orphans)개") }
       return PanelCard(symbol: "internaldrive.fill", color: orphans > 0 ? .orange : .green, title: "정리 가능",
-                       value: sizeText(d.reclaimableKB), details: details) { model.open(.disk, using: openWindow) }
+                       value: sizeText(d.reclaimableKB), details: details) { model.open(.disk) }
     } else {
       return PanelCard(symbol: "internaldrive.fill", color: .secondary, title: "디스크", value: "", details: ["재는 중…"], action: nil)
     }
@@ -88,7 +87,7 @@ struct MenuPanel: View {
     if let inv = model.inventory {
       PanelCard(symbol: "square.grid.2x2.fill", color: .purple, title: "설치된 것", value: "앱 \(inv.apps.count)개",
                 details: ["brew \(inv.formulae.count + inv.casks.count) · 패키지 \(inv.packages.count) · 런타임 \(inv.runtimes.filter(\.installed).count) · 백그라운드 \(inv.background.count)"]) {
-        model.open(.apps, using: openWindow)
+        model.open(.apps)
       }
     }
   }
@@ -97,7 +96,7 @@ struct MenuPanel: View {
     let ended = model.runtimeEOL.filter { $0.value.status == .passed }.keys.sorted()
     if !ended.isEmpty {
       PanelCard(symbol: "clock.badge.exclamationmark.fill", color: .red, title: "지원 끝난 런타임", value: "\(ended.count)개",
-                details: [ended.joined(separator: " · ")]) { model.open(.runtimes, using: openWindow) }
+                details: [ended.joined(separator: " · ")]) { model.open(.runtimes) }
     }
   }
 
