@@ -8,10 +8,11 @@ struct MainWindow: View {
   @State private var query = ""
 
   enum Section: String, Hashable, CaseIterable {
-    case apps, formulae, casks, packages, runtimes, background, environment
+    case apps, updates, formulae, casks, packages, runtimes, background, environment
     var title: String {
       switch self {
       case .apps: return "앱"
+      case .updates: return "업데이트"
       case .formulae: return "Homebrew 포뮬러"
       case .casks: return "Homebrew 캐스크"
       case .packages: return "패키지"
@@ -23,6 +24,7 @@ struct MainWindow: View {
     var symbol: String {
       switch self {
       case .apps: return "square.grid.2x2"
+      case .updates: return "arrow.up.circle"
       case .formulae: return "terminal"
       case .casks: return "shippingbox"
       case .packages: return "cube"
@@ -46,6 +48,9 @@ struct MainWindow: View {
         }
       }
       .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+      .onChange(of: model.requestedSection, initial: true) { _, s in
+        if let s { section = s; model.requestedSection = nil }
+      }
     } detail: {
       Group {
         if model.inventory == nil {
@@ -53,6 +58,7 @@ struct MainWindow: View {
         } else {
           switch section ?? .apps {
           case .apps: AppsTable(apps: filtered(model.inventory!.apps) { $0.name + " " + ($0.bundleID ?? "") })
+          case .updates: UpdatesView(items: model.outdated.map { filtered($0) { $0.name } }, checking: model.checkingUpdates, warnings: model.outdatedWarnings)
           case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name })
           case .casks: CasksTable(items: filtered(model.inventory!.casks) { $0.token + " " + $0.appNames.joined(separator: " ") })
           case .packages: PackagesTable(items: filtered(model.inventory!.packages) { $0.name })
@@ -86,6 +92,7 @@ struct MainWindow: View {
     guard let inv = model.inventory else { return nil }
     switch s {
     case .apps: return inv.apps.count
+    case .updates: return model.outdated == nil ? nil : model.pendingUpdates
     case .formulae: return inv.formulae.count
     case .casks: return inv.casks.count
     case .packages: return inv.packages.count
@@ -109,6 +116,7 @@ func sizeText(_ kb: Int?) -> String {
   let f = ByteCountFormatter()
   f.countStyle = .file
   f.allowsNonnumericFormatting = false   // "Zero KB" 대신 "0 KB"
+  f.allowedUnits = [.useKB, .useMB, .useGB, .useTB]   // 0은 "0 bytes"가 아니라 "0 KB"
   return f.string(fromByteCount: Int64(kb) * 1024)
 }
 
@@ -145,22 +153,14 @@ struct AppsTable: View {
       TableColumn("합계", value: \.totalKB.orZero) { a in
         HStack(spacing: 3) {
           Text(sizeText(a.totalKB)).monospacedDigit()
-          if a.dataPartial { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).imageScale(.small) }
-          Spacer(minLength: 0)
+          if a.dataPartial { InfoBadge(text: partialHelp(a)) }
         }
-        .contentShape(Rectangle())
-        .help(a.dataPartial ? partialHelp(a) : "번들 \(sizeText(a.bundleKB)) + 데이터 \(sizeText(a.dataKB))")
       }
       .width(min: 80, ideal: 95)
       TableColumn("번들", value: \.bundleKB.orZero) { a in Text(sizeText(a.bundleKB)).monospacedDigit().foregroundStyle(.secondary) }
         .width(min: 60, ideal: 75)
       TableColumn("데이터", value: \.dataKB.orZero) { a in
-        HStack {
-          Text(a.dataPartial ? "\(sizeText(a.dataKB)) 이상" : sizeText(a.dataKB)).monospacedDigit().foregroundStyle(.secondary)
-          Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-        .help(a.dataPartial ? partialHelp(a) : "앱 번들 밖(~/Library 등)에 쌓인 데이터·캐시")
+        Text(a.dataPartial ? "\(sizeText(a.dataKB)) 이상" : sizeText(a.dataKB)).monospacedDigit().foregroundStyle(.secondary)
       }
       .width(min: 70, ideal: 95)
       TableColumn("위치") { a in Text((a.path as NSString).deletingLastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
@@ -253,7 +253,7 @@ struct RuntimesView: View {
         .width(min: 80, ideal: 110)
         TableColumn("쓰이는 경로") { r in
           HStack(spacing: 4) {
-            if r.conflict { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(conflictHelp(r)) }
+            if r.conflict { InfoBadge(text: conflictHelp(r)) }
             Text(r.active?.path ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
           }
         }
@@ -282,7 +282,7 @@ struct BackgroundTable: View {
     Table(items) {
       TableColumn("이름") { b in
         HStack(spacing: 4) {
-          if b.owner == .unknown || b.programMissing { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+          if b.owner == .unknown || b.programMissing || b.isEmpty { InfoBadge(text: backgroundHelp(b)) }
           Text(b.label ?? ((b.file as NSString).lastPathComponent as NSString).deletingPathExtension)
         }
       }
@@ -297,9 +297,94 @@ struct BackgroundTable: View {
     }
   }
 
+  private func backgroundHelp(_ b: BackgroundItem) -> String {
+    var lines: [String] = []
+    if b.isEmpty { lines.append("내용이 빈 plist({})입니다 — 아무것도 실행하지 않는 껍데기입니다. 앱이 옛 구성요소를 끄면서 남긴 파일로 보입니다(예: 구글의 옛 Keystone).") }
+    if b.programMissing { lines.append("실행 파일이 디스크에 없습니다 — 주인 앱을 지운 뒤 남은 항목일 가능성이 큽니다.") }
+    if b.owner == .unknown { lines.append("설치된 어느 앱·brew 포뮬러와도 연결되지 않았습니다(실행 파일 위치, 이름·번들 ID, 서명 개발사로 찾음).") }
+    lines.append("파일: " + b.file.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+    return lines.joined(separator: "\n\n")
+  }
+
   private func state(_ b: BackgroundItem) -> String {
     if b.isEmpty { return "내용 없음" }
     if b.programMissing { return "실행 파일 없음" }
     return b.runAtLoad ? "로그인 시 실행" : "필요할 때 실행"
+  }
+}
+
+struct UpdatesView: View {
+  let items: [OutdatedItem]?
+  let checking: Bool
+  let warnings: [String]
+
+  var body: some View {
+    if let items {
+      if items.isEmpty {
+        ContentUnavailableView("모두 최신입니다", systemImage: "checkmark.circle", description: Text("brew · npm 전역 · App Store(mas)에 업데이트할 것이 없습니다."))
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          if items.contains(where: \.runtimeMajor) {
+            Label("런타임 메이저 업그레이드는 프로젝트를 깨뜨릴 수 있어 \"전부 업데이트\"에서 뺍니다. 필요하면 하나씩 고르세요.", systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(.orange).font(.callout).padding(10)
+          }
+          Table(items.sorted { ($0.runtimeMajor ? 0 : 1, $0.source.rawValue, $0.name) < ($1.runtimeMajor ? 0 : 1, $1.source.rawValue, $1.name) }) {
+            TableColumn("이름") { o in Text(o.name) }.width(min: 140, ideal: 200)
+            TableColumn("출처") { o in Text(o.source.label).foregroundStyle(.secondary) }.width(min: 70, ideal: 90)
+            TableColumn("현재") { o in Text(o.current).foregroundStyle(.secondary).monospacedDigit() }.width(min: 70, ideal: 100)
+            TableColumn("최신") { o in Text(o.latest).monospacedDigit() }.width(min: 70, ideal: 100)
+            TableColumn("구분") { o in kind(o) }
+          }
+        }
+      }
+    } else if checking {
+      ProgressView("업데이트 확인 중…").frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      ContentUnavailableView("업데이트를 확인하지 못했습니다", systemImage: "exclamationmark.triangle", description: Text(warnings.joined(separator: "\n")))
+    }
+  }
+
+  @ViewBuilder private func kind(_ o: OutdatedItem) -> some View {
+    if o.pinned {
+      Text("고정됨(brew pin)").foregroundStyle(.secondary)
+    } else if o.runtimeMajor {
+      HStack(spacing: 4) {
+        InfoBadge(text: "\(o.name) \(o.current) → \(o.latest)는 언어 런타임의 메이저 업그레이드입니다.\n\n이 버전에 맞춰 둔 프로젝트가 깨질 수 있어 \"전부 업데이트\"에서는 빼고, 직접 고를 때만 실행합니다.")
+        Text("런타임 메이저")
+      }
+    } else {
+      Text("일반").foregroundStyle(.secondary)
+    }
+  }
+}
+
+/// ⚠️ 아이콘 — 마우스를 올리거나 누르면 설명 창.
+/// 표(Table) 칸 안에서는 `.help` 툴팁이 뜨지 않아서(2026-11-21 실측) 팝오버로 보여 준다.
+struct InfoBadge: View {
+  var systemImage = "exclamationmark.triangle.fill"
+  var color: Color = .orange
+  let text: String
+  @State private var shown = false
+
+  var body: some View {
+    Image(systemName: systemImage)
+      .foregroundStyle(color)
+      .imageScale(.small)
+      .padding(3)
+      .contentShape(Rectangle())
+      .onHover { shown = $0 }
+      .onTapGesture { shown.toggle() }
+      .popover(isPresented: $shown, arrowEdge: .bottom) {
+        // 표 칸의 한 줄 제한(lineLimit)이 팝오버 안까지 따라 들어와 잘렸다 — 여기서 풀어 준다
+        Text(text)
+          .font(.callout)
+          .lineLimit(nil)
+          .multilineTextAlignment(.leading)
+          .textSelection(.enabled)
+          .frame(width: 380, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(14)
+      }
+      .accessibilityLabel(Text(text))
   }
 }

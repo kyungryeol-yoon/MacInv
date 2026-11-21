@@ -9,7 +9,8 @@ struct MacInvApp: App {
     MenuBarExtra {
       MenuContent().environmentObject(model)
     } label: {
-      Image(systemName: "checklist")   // 메뉴 막대 아이콘(2026-11-21 정함) — 앱 아이콘의 "목록 + 줄 끝 상태"와 같은 모양
+      // 메뉴 막대 아이콘(2026-11-21 정함) checklist — 업데이트가 있으면 주황 점
+      Image(nsImage: MenuBarIcon.image(badge: model.pendingUpdates > 0))
     }
 
     Window("MacInv", id: "main") {
@@ -33,6 +34,12 @@ final class AppModel: ObservableObject {
   @Published var found: [String: String] = [:]
   @Published var fullDiskAccess: Permissions.Access = .unknown
   @Published var inventory: Inventory?
+  /// 업데이트 대기(nil = 아직 확인 전)
+  @Published var outdated: [OutdatedItem]?
+  @Published var outdatedWarnings: [String] = []
+  @Published var checkingUpdates = false
+  /// 메뉴에서 누른 항목으로 창의 분류를 바꾸라는 요청
+  @Published var requestedSection: MainWindow.Section?
   @Published var scanning = false
   @Published var measuring = false
   /// 데이터 용량 측정 진행(끝낸 앱 수, 전체)
@@ -43,6 +50,15 @@ final class AppModel: ObservableObject {
     guard measuring else { return nil }
     if let p = measureProgress { return "용량 재는 중 \(p.done)/\(p.total)" }
     return "용량 재는 중…"
+  }
+
+  /// 실제로 할 수 있는 업데이트 수(고정된 것 제외)
+  var pendingUpdates: Int { outdated?.filter { !$0.pinned }.count ?? 0 }
+
+  func open(_ section: MainWindow.Section, using openWindow: OpenWindowAction) {
+    requestedSection = section
+    openWindow(id: "main")
+    NSApplication.shared.activate()
   }
 
   var notice: Permissions.Notice {
@@ -74,6 +90,12 @@ final class AppModel: ObservableObject {
       var f: [String: String] = [:]
       for t in Self.tools { if let p = r.resolve(t) { f[t] = p } }
       runner = r; pathFromShell = fromShell; found = f
+      // 업데이트 대기는 따로(npm outdated는 네트워크를 탄다) — 목록·용량과 나란히
+      checkingUpdates = true
+      Task {
+        let u = await Updates.scan(runner: r)
+        outdated = u.items; outdatedWarnings = u.warnings; checkingUpdates = false
+      }
       let inv = await InventoryScanner.scan(runner: r)
       inventory = inv; scanning = false
       // 번들(du 한 번) → 데이터(앱마다, 앱 하나 끝날 때마다 진행률). 목록은 먼저 보여 준다.
@@ -111,11 +133,18 @@ struct MenuContent: View {
     } else {
       Text("스캔 중…")
     }
-    Button("MacInv 열기") {
-      openWindow(id: "main")
-      NSApplication.shared.activate()
+    if let o = model.outdated {
+      let n = model.pendingUpdates, majors = o.filter { $0.runtimeMajor && !$0.pinned }.count
+      Button(n == 0 ? "업데이트 없음" : "업데이트 \(n)개" + (majors > 0 ? " (런타임 메이저 \(majors)개)" : "") + "…") {
+        model.open(.updates, using: openWindow)
+      }
+      .disabled(n == 0)
+    } else if model.checkingUpdates {
+      Text("업데이트 확인 중…").foregroundStyle(.secondary)
     }
-    .keyboardShortcut("o")
+    Divider()
+    Button("MacInv 열기") { model.open(.apps, using: openWindow) }
+      .keyboardShortcut("o")
     Button(model.scanning ? "스캔 중…" : "다시 스캔") { model.scan() }
       .disabled(model.scanning)
 
@@ -134,5 +163,27 @@ struct MenuContent: View {
     Divider()
     Button("MacInv 종료") { NSApplication.shared.terminate(nil) }
       .keyboardShortcut("q")
+  }
+}
+
+/// 메뉴 막대 아이콘: checklist(템플릿). 알릴 것이 있으면 주황 점을 얹는다.
+/// 점이 있으면 템플릿으로 둘 수 없으므로(점까지 흑백이 됨) 기호는 labelColor로 직접 칠한다 — 그리는 순간의 막대 모양(밝음/어두움)을 따른다.
+enum MenuBarIcon {
+  static func image(badge: Bool) -> NSImage {
+    let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+    guard let symbol = NSImage(systemSymbolName: "checklist", accessibilityDescription: "MacInv")?.withSymbolConfiguration(config) else { return NSImage() }
+    guard badge else { symbol.isTemplate = true; return symbol }
+    let size = NSSize(width: symbol.size.width + 3, height: symbol.size.height)
+    let img = NSImage(size: size, flipped: false) { _ in
+      let tinted = symbol.withSymbolConfiguration(config.applying(.init(paletteColors: [.labelColor]))) ?? symbol
+      tinted.draw(in: NSRect(x: 0, y: 0, width: symbol.size.width, height: symbol.size.height))
+      let d: CGFloat = 6
+      NSColor.systemOrange.setFill()
+      NSBezierPath(ovalIn: NSRect(x: size.width - d, y: size.height - d, width: d, height: d)).fill()
+      return true
+    }
+    img.isTemplate = false
+    img.accessibilityDescription = "MacInv — 업데이트 있음"
+    return img
   }
 }
