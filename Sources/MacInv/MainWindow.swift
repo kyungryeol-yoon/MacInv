@@ -8,11 +8,12 @@ struct MainWindow: View {
   @State private var query = ""
 
   enum Section: String, Hashable, CaseIterable {
-    case apps, updates, formulae, casks, packages, runtimes, background, environment
+    case apps, updates, disk, formulae, casks, packages, runtimes, background, environment
     var title: String {
       switch self {
       case .apps: return "앱"
       case .updates: return "업데이트"
+      case .disk: return "디스크"
       case .formulae: return "Homebrew 포뮬러"
       case .casks: return "Homebrew 캐스크"
       case .packages: return "패키지"
@@ -25,6 +26,7 @@ struct MainWindow: View {
       switch self {
       case .apps: return "square.grid.2x2"
       case .updates: return "arrow.up.circle"
+      case .disk: return "internaldrive"
       case .formulae: return "terminal"
       case .casks: return "shippingbox"
       case .packages: return "cube"
@@ -58,6 +60,7 @@ struct MainWindow: View {
         } else {
           switch section ?? .apps {
           case .apps: AppsTable(apps: filtered(model.inventory!.apps) { $0.name + " " + ($0.bundleID ?? "") })
+          case .disk: DiskView(report: model.disk, scanning: model.scanningDisk, query: query)
           case .updates: UpdatesView(items: model.outdated.map { filtered($0) { $0.name } }, checking: model.checkingUpdates, warnings: model.outdatedWarnings)
           case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name })
           case .casks: CasksTable(items: filtered(model.inventory!.casks) { $0.token + " " + $0.appNames.joined(separator: " ") })
@@ -94,6 +97,7 @@ struct MainWindow: View {
     switch s {
     case .apps: return inv.apps.count
     case .updates: return model.outdated == nil ? nil : model.pendingUpdates
+    case .disk: return model.disk?.entries.count
     case .formulae: return inv.formulae.count
     case .casks: return inv.casks.count
     case .packages: return inv.packages.count
@@ -439,5 +443,110 @@ struct InfoBadge: View {
           .padding(14)
       }
       .accessibilityLabel(Text(text))
+  }
+}
+
+struct DiskView: View {
+  let report: DiskReport?
+  let scanning: Bool
+  let query: String
+  @State private var order = [KeyPathComparator(\DiskEntry.sizeKB, order: .reverse)]
+
+  var body: some View {
+    if let r = report {
+      VStack(alignment: .leading, spacing: 0) {
+        summary(r).padding(12)
+        Divider()
+        Table(rows(r), sortOrder: $order) {
+          TableColumn("위치", value: \.location.name) { e in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(e.location.name)
+              if !e.breakdown.isEmpty {
+                Text(breakdownLine(e.breakdown)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+              }
+            }
+          }
+          .width(min: 220, ideal: 320)
+          TableColumn("용량", value: \.sizeKB) { e in
+            HStack(spacing: 3) {
+              Text(sizeText(e.sizeKB)).monospacedDigit()
+              if e.partial { InfoBadge(text: partialText(e)) }
+            }
+          }
+          .width(min: 80, ideal: 100)
+          TableColumn("등급") { e in Text(e.location.tier.label).foregroundStyle(e.location.tier == .expensive ? .orange : .secondary) }
+            .width(min: 90, ideal: 110)
+          TableColumn("상태") { e in
+            if e.orphan {
+              HStack(spacing: 4) { InfoBadge(text: orphanText(e)); Text("고아 캐시").foregroundStyle(.orange) }
+            } else { Text("") }
+          }
+          .width(min: 80, ideal: 100)
+          TableColumn("정리 방법") { e in
+            HStack(spacing: 4) {
+              Text(method(e)).foregroundStyle(.secondary).lineLimit(1)
+              if let note = e.location.note { InfoBadge(systemImage: "info.circle", color: .secondary, text: note) }
+            }
+          }
+        }
+      }
+    } else {
+      ProgressView(scanning ? "디스크 재는 중…" : "인벤토리를 먼저 스캔합니다…").frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  private func rows(_ r: DiskReport) -> [DiskEntry] {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    let base = q.isEmpty ? r.entries : r.entries.filter { ($0.location.name + " " + $0.breakdown.map(\.name).joined(separator: " ")).localizedCaseInsensitiveContains(q) }
+    return base.sorted(using: order)
+  }
+
+  @ViewBuilder private func summary(_ r: DiskReport) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 28) {
+      stat("정리하면 늘어날 공간", sizeText(r.reclaimableKB), "안전(재생성) + 빌드 산출물")
+      stat("재다운로드 비싼 것", sizeText(r.expensiveKB), "모델·이미지 — 기본 정리에서 뺌")
+      stat("알려진 위치 합계", sizeText(r.totalKB), "\(r.entries.count)곳")
+      if let free = r.freeBytes, let total = r.totalBytes {
+        stat("디스크 여유", ByteCountFormatter.string(fromByteCount: free, countStyle: .file), "전체 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+      }
+      Spacer()
+    }
+  }
+
+  private func stat(_ title: String, _ value: String, _ sub: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title).font(.caption).foregroundStyle(.secondary)
+      Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+      Text(sub).font(.caption2).foregroundStyle(.tertiary)
+    }
+  }
+
+  /// "Claude 1.7 GB · Code 74 MB · 외 3개"
+  private func breakdownLine(_ b: [(name: String, kb: Int)]) -> String {
+    let top = b.prefix(5).map { "\($0.name) \(sizeText($0.kb))" }.joined(separator: " · ")
+    return b.count > 5 ? top + " · 외 \(b.count - 5)개" : top
+  }
+
+  private func method(_ e: DiskEntry) -> String {
+    if let c = e.location.cleanup, !c.isEmpty { return c.map { $0.joined(separator: " ") }.joined(separator: " && ") }
+    if e.location.trash == true { return "휴지통으로 이동" }
+    return "직접 정리"
+  }
+
+  private func orphanText(_ e: DiskEntry) -> String {
+    var s = "이 캐시를 쓰는 도구(\(e.location.tool))"
+    if let apps = e.location.owner_apps, !apps.isEmpty { s += "나 앱(\(apps.joined(separator: ", ")))" }
+    s += "이 이 맥에 하나도 없습니다 — 도구를 지운 뒤 남은 캐시로 보입니다.\n\n설치 목록·PATH·이 캐시를 쓰는 앱까지 확인했습니다."
+    return s
+  }
+
+  private func partialText(_ e: DiskEntry) -> String {
+    let home = NSHomeDirectory()
+    var s = "⚠️ 일부만 측정 — 전체 디스크 접근 권한이 없어 일부 폴더를 읽지 못했습니다. 실제 용량은 이보다 큽니다."
+    if !e.deniedPaths.isEmpty {
+      s += "\n\n읽지 못한 곳:"
+      for p in e.deniedPaths.prefix(6) { s += "\n• " + (p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p) }
+    }
+    return s
   }
 }

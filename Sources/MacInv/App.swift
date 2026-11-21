@@ -7,11 +7,12 @@ struct MacInvApp: App {
 
   var body: some Scene {
     MenuBarExtra {
-      MenuContent().environmentObject(model)
+      MenuPanel().environmentObject(model)
     } label: {
       // 메뉴 막대 아이콘(2026-11-21 정함) checklist — 업데이트가 있으면 주황 점
       Image(nsImage: MenuBarIcon.image(badge: model.pendingUpdates > 0))
     }
+    .menuBarExtraStyle(.window)   // 메뉴가 아니라 카드 패널
 
     Window("MacInv", id: "main") {
       MainWindow().environmentObject(model)
@@ -41,6 +42,9 @@ final class AppModel: ObservableObject {
   /// 런타임 이름 → 지원 종료·최신 버전(조회 실패면 비어 있음 — 에러가 아니다)
   @Published var runtimeEOL: [String: RuntimeEOL] = [:]
   @Published var hasMise = false
+  /// 디스크 사용처(캐시·모델·빌드 산출물). 인벤토리가 있어야 고아 캐시를 판정한다
+  @Published var disk: DiskReport?
+  @Published var scanningDisk = false
   /// 메뉴에서 누른 항목으로 창의 분류를 바꾸라는 요청
   @Published var requestedSection: MainWindow.Section?
   @Published var scanning = false
@@ -71,8 +75,8 @@ final class AppModel: ObservableObject {
   init() {
     checkPermissions()
     scan()
-    // 메뉴를 열 때마다 권한을 다시 본다(설정에서 켜고 돌아오면 바로 반영 — 단 실제 적용은 다시 시작 후)
-    observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+    // 패널·창이 앞으로 올 때마다 권한을 다시 본다(설정에서 켜고 돌아오면 바로 반영 — 단 실제 적용은 다시 시작 후)
+    observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.checkPermissions() }
     })
   }
@@ -102,6 +106,8 @@ final class AppModel: ObservableObject {
       let inv = await InventoryScanner.scan(runner: r)
       inventory = inv; scanning = false
       hasMise = r.resolve("mise") != nil
+      scanningDisk = true
+      Task { disk = await Disk.scan(runner: r, inventory: inv); scanningDisk = false }
       // 런타임 EOL: 7일 캐시, 실패·오프라인이면 조용히 생략
       Task {
         let installed = inv.runtimes.filter(\.installed)
@@ -129,52 +135,6 @@ final class AppModel: ObservableObject {
     p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
     try? p.run()
     NSApplication.shared.terminate(nil)
-  }
-}
-
-struct MenuContent: View {
-  @EnvironmentObject private var model: AppModel
-  @Environment(\.openWindow) private var openWindow
-
-  var body: some View {
-    if let inv = model.inventory {
-      Text("앱 \(inv.apps.count)개 · brew \(inv.formulae.count + inv.casks.count)개 · 패키지 \(inv.packages.count)개")
-      Text("스캔 \(inv.scannedAt.formatted(date: .omitted, time: .shortened))\(model.measuringText.map { " · " + $0 } ?? "")")
-        .foregroundStyle(.secondary)
-      if !inv.warnings.isEmpty { Text("⚠️ 경고 \(inv.warnings.count)건 — 창에서 확인").foregroundStyle(.secondary) }
-    } else {
-      Text("스캔 중…")
-    }
-    if let o = model.outdated {
-      let n = model.pendingUpdates, majors = o.filter { $0.runtimeMajor && !$0.pinned }.count
-      Button(n == 0 ? "업데이트 없음" : "업데이트 \(n)개" + (majors > 0 ? " (런타임 메이저 \(majors)개)" : "") + "…") {
-        model.open(.updates, using: openWindow)
-      }
-      .disabled(n == 0)
-    } else if model.checkingUpdates {
-      Text("업데이트 확인 중…").foregroundStyle(.secondary)
-    }
-    Divider()
-    Button("MacInv 열기") { model.open(.apps, using: openWindow) }
-      .keyboardShortcut("o")
-    Button(model.scanning ? "스캔 중…" : "다시 스캔") { model.scan() }
-      .disabled(model.scanning)
-
-    if model.fullDiskAccess == .denied {
-      Divider()
-      if model.notice == .lostAfterUpdate {
-        Text("전체 디스크 접근이 풀렸습니다(업데이트 후 생길 수 있음)")
-        Text("시스템 설정 목록에서 MacInv를 −로 지운 뒤 다시 추가하세요").foregroundStyle(.secondary)
-      } else {
-        Text("전체 디스크 접근: 꺼져 있음 — 다른 앱 데이터는 일부만 측정")
-      }
-      Button("시스템 설정 열기…") { NSWorkspace.shared.open(Permissions.fullDiskAccessSettingsURL) }
-      Text("켠 뒤에는 MacInv를 다시 시작해야 적용됩니다").foregroundStyle(.secondary)
-      Button("MacInv 다시 시작") { model.relaunch() }
-    }
-    Divider()
-    Button("MacInv 종료") { NSApplication.shared.terminate(nil) }
-      .keyboardShortcut("q")
   }
 }
 
