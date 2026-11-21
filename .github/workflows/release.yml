@@ -1,0 +1,57 @@
+# 태그(v1.2.3)를 올리면: 빌드 → GitHub Release에 zip 첨부 → homebrew-tap의 cask 갱신
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26   # GitHub이 주는 가장 새 macOS 머신(macos-15는 Xcode가 오래돼 Hum 빌드가 실패한 적 있음)
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}   # homebrew-tap에 쓸 수 있는 토큰. 없으면 tap 갱신은 건너뜀
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 빌드 번호(커밋 수)에 필요
+
+      # 머신에 깔린 Xcode 중 가장 새 정식판을 고름
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show versions   # 로그에 남겨서 이 맥(xcodebuild -version)과 비교할 수 있게
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$VERSION" ./build.sh
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SHA256=$(shasum -a 256 "build/MacInv-$VERSION.zip" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "build/MacInv-$VERSION.zip" \
+            --title "$GITHUB_REF_NAME" --notes-file packaging/release-notes.md --generate-notes
+
+      - name: Update Homebrew tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/__VERSION__/$VERSION/" -e "s/__SHA256__/$SHA256/" packaging/macinv.rb \
+            | grep -v '^# Homebrew cask 틀' > tap/Casks/macinv.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/macinv.rb
+          git diff --cached --quiet || { git commit -m "macinv $VERSION"; git push; }

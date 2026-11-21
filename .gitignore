@@ -1,6 +1,4 @@
-# 빌드 산출물 (macinv는 루트의 Go 바이너리만 — 앞에 /가 없으면 macOS 대소문자 무시로 Sources/MacInv까지 빠진다)
-/macinv
-/dist/
+# 빌드 산출물 (앞에 /를 붙인다 — 없으면 macOS 대소문자 무시로 Sources/MacInv까지 빠질 수 있다)
 .build/
 /build/
 

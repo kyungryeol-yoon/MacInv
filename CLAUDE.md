@@ -7,13 +7,13 @@ macOS에 설치된 소프트웨어 전체를 스캔해 "내 맥에 뭐가 어디
 | 항목 | 결정 |
 |---|---|
 | 형태 | 메뉴 막대 앱. 터미널 CLI는 버린다(2026-11-20). 메뉴 막대는 AppKit `NSStatusItem`(Hum과 같음) — 왼쪽 클릭 카드 패널(팝오버), **오른쪽 클릭 짧은 메뉴**(열기·다시 스캔·끝내기). SwiftUI `MenuBarExtra`는 오른쪽 클릭을 못 받아 바꿨다(2026-11-21 사용자 요청 — 무심코 오른쪽 클릭하는 습관). 목록 창도 AppKit `NSWindow` + `NSHostingController`(`sceneBridgingOptions = .all`로 툴바·검색창 연결) |
-| 구현 | **Swift로 완전히 새로 짠다**(2026-11-21). Go 엔진을 호출하지 않는다. 지금 Go 코드는 이식 대상이 아니라 **요구사항·교훈의 출처** — Swift 앱이 같은 일을 하게 되면 지운다 |
+| 구현 | **Swift로 완전히 새로 짰다**(2026-11-21). 먼저 만든 Go 명령줄 버전은 요구사항·교훈의 출처로만 쓰고 지웠다(아래 「옛 Go 구현」) |
 | 번들 ID | `io.github.kyungryeol-yoon.macinv` — 개인 앱 공통 규칙 `io.github.kyungryeol-yoon.<앱>`(Hum·DiSwitch와 같음). **바꾸면 설정·권한 허용이 사라지니 고정** |
 | 서명 | ad-hoc(DiSwitch·Hum과 같음, 인증서 없음 — 2026-11-21 다시 확인하고 유지). **실측: 권한 허용은 cdhash에 묶여 다시 빌드하면 풀린다**(설정 목록엔 켜져 있어도 적용 안 됨), 그리고 **켠 뒤 다시 시작해야 적용된다**. 앱은 메뉴를 열 때마다 다시 확인하고 "다시 시작"·"지웠다 다시 추가" 안내를 띄운다. 개발 중엔 터미널에 전체 디스크 접근을 주지 않는다(그 안의 모든 명령이 권한을 갖게 되므로) — 권한이 필요한 시험 때만 설정에서 MacInv를 지웠다 다시 추가. 배포 후 업데이트마다 다시 켜는 게 번거로우면 7단계에서 고정 자체 서명 인증서(로그인 키체인, `.p12` 백업, Actions Secret)로 바꾼다 |
 | 권한 원칙 | **권한 없이도 동작한다**(목록·업데이트·대부분의 용량). 전체 디스크 접근은 "더 정확하게(보호 폴더 용량)·보호 폴더 정리"가 필요할 때만 — 조르지 않고, 필요한 곳(⚠️ 일부만 측정, 6단계 계획의 보호 폴더)에서만 이유와 켜는 방법을 보여 준다(2026-11-21 사용자 확인) |
 | 배포 | `kyungryeol-yoon/homebrew-tap`의 Cask `macinv`. 틀은 DiSwitch(`packaging/diswitch.rb`, 태그 → Actions → tap 갱신)를 따른다 |
 | 라이선스 | MIT(저작권자 「Yoon」, Hum·DiSwitch와 같음) |
-| 이름 | 보이는 이름·저장소·Go 모듈은 `MacInv`. 소문자 — Cask 이름 `macinv`(소문자만 허용), 실행 파일 이름. 캐시는 아직 `~/.macinv/`(Swift 앱에선 `~/Library/Application Support/MacInv`가 자연스럽다 — 정할 때 옛 위치는 새로 시작해도 된다, 2026-11-21 비움) |
+| 이름 | 보이는 이름·저장소는 `MacInv`. 소문자 — Cask 이름 `macinv`(소문자만 허용). 데이터는 `~/Library/Caches/io.github.kyungryeol-yoon.macinv/`(EOL 캐시)와 환경설정 plist뿐 — 옛 `~/.macinv/`는 2026-11-21 비움 |
 
 - GitHub: https://github.com/kyungryeol-yoon/MacInv (public, `main`). 2026-11-20 `macinv`에서 이름 변경
 - 커밋·푸시·tap 저장소 변경은 사용자가 요청할 때만. 설명은 한국어
@@ -31,7 +31,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - `Sources/MacInvCore/` — 로직(화면 없음, 테스트 대상). `Command.swift`(실행기: 타임아웃, 미설치=`notFound`, 읽기는 stdout 있으면 성공·`strict`는 종료 코드로만), `SearchPath.swift`(GUI 앱 PATH = 로그인 셸 `-ilc`에서 표식으로 받아온 PATH → 알려진 위치), `Permissions.swift`(전체 디스크 접근 — 보호 경로를 실제로 열어 판정, 안내 판정 `notice`는 순수 함수), `SelfIdentity.swift`(자기 자신 판정: 번들 ID·번들 경로·`/Applications/MacInv.app`·데이터 경로·cask `macinv`)
 - `Sources/MacInv/` — 메뉴 막대 화면(SwiftUI)
 - `Tests/MacInvCoreTests/`
-- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 5-2(업데이트·고아 잔여물·디스크·Ollama 계획) ✅ · 6(실행: `Executor.swift`, 확인 화면 → 로그 → 결과) ✅ · 다음 7 배포 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
+- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 5-2(업데이트·고아 잔여물·디스크·Ollama 계획) ✅ · 6(실행: `Executor.swift`, 확인 화면 → 로그 → 결과) ✅ · 다음 7 배포 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받는다
 - 화면: 메뉴 막대는 요약·바로가기(창 열기·다시 스캔·권한 안내 — 단계마다 "손댈 게 있나"를 늘려 간다), 목록은 별도 창(왼쪽 분류 + 표)
 - `Paths.swift`는 측정(`sizePaths`)과 삭제 계획(`leftovers`, 5단계)이 **같이 쓰는 한 벌**. glob을 쓰지 않고 폴더 목록을 문자열로 비교(이름의 `[`·`*`·`?`가 패턴이 될 수 없음). 벤더 표는 `Vendors.swift`의 JSON 문자열(SwiftPM 리소스 번들은 .app 서명과 안 맞음)
 - **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행. **타임아웃은 프로세스 그룹째**(2026-11-21 점검): 바로 아래 프로세스만 끄면 그 하위 프로세스(brew → ruby·curl, `sh -c 'x &'`)가 파이프를 잡고 있어 읽기가 안 끝났다(실측 30초 멈춤). `posix_spawn`으로 새 그룹에서 시작 → 타임아웃 때 `killpg` SIGTERM → 2초 뒤 SIGKILL → 3초 뒤에도 안 닫히면 읽기를 포기하고 돌아온다. stdin은 /dev/null(sudo 등 대화형 입력은 바로 실패)
@@ -53,7 +53,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 
 ## 규칙과 교훈 (언어 무관 — 새 구현에서도 테이블 테스트로 고정)
 
-괄호 안은 참고할 Go 위치. 대부분 **실기에서 오탐·데이터 손실 직전까지 가서** 생긴 규칙이라 "편의를 위해 완화"하지 말 것.
+괄호 안은 옛 Go판 위치(지움 — 위 「옛 Go 구현」 참고). 대부분 **실기에서 오탐·데이터 손실 직전까지 가서** 생긴 규칙이라 "편의를 위해 완화"하지 말 것.
 
 ### 삭제 안전
 - **기본은 계획만**(읽기 전용). 실행은 명시적 승인 뒤에만. **rm 금지, 휴지통으로만.** 휴지통으로 옮긴 건 "휴지통을 비우기 전까지 실제로는 안 빈다"를 계획에 적는다
@@ -138,33 +138,12 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - expensive 항목은 "직접 골랐다"가 옵트인이지만 GUI 앱 삭제와 같은 재확인. [확신낮음]은 기본 체크 해제
 - 런타임 행은 삭제/업데이트 불가. 실행은 비동기·한 번에 1개·줄 단위 로그·실패 건수 요약, 끝나면 영향받은 소스만 다시 스캔
 
-## 현재 Go 구현 (참고용 — Swift 완성 후 삭제)
+## 옛 Go 구현
 
-Go 1.25+(개발은 brew go 1.26.5), 의존성 `spf13/cobra`·`golang.org/x/sync`. 모듈 `github.com/kyungryeol-yoon/MacInv`.
-
-```bash
-go build ./... && go vet ./... && go test ./...
-go run . scan            # scan · outdated · trace <name> · runtimes · disk · clean <name> · update <name>|--all · orphans
-go run . scan --json     # scan/outdated/trace/runtimes/disk는 --json 지원
-```
-`clean`·`update`·`orphans`·`disk`는 기본 dry-run, `--apply` + 터미널 확인 입력(대상 이름/`all`/`orphans`/`disk`)으로 실행. 결과 캐시는 `~/.macinv/inventory.json`, `eol-cache.json`.
-
-의존은 아래로만: `cmd → disk → clean → paths → exec`, `source → paths`, `report`는 순수 데이터. **경로 판별·매칭 규칙은 paths에 한 벌만** — 측정과 삭제가 다른 규칙을 갖는 순간 "보이는 용량"과 "지워지는 것"이 어긋난다(Swift에서도 같은 원칙).
-
-| 패키지 | 내용 |
-|---|---|
-| `internal/paths` | 보호 경로, 잔여물 매칭, 측정 경로, 벤더 표(`data/vendors.json`), Bundle ID 유틸, 중복 경로 제거 |
-| `internal/source` | 소스별 스캔(apps/brew/npm/pipx/cargo/mas/gobin/launchd, 병렬). 파서는 순수 함수 + `testdata/` fixture. runtimes·EOL·trace |
-| `internal/clean` | 삭제·업데이트·고아 잔여물 계획(`Plan`/`Target`), 실행(`Execute`), 렌더(`PlanLines`/`RenderPlanText`), 권한·회수 예상 |
-| `internal/disk` | 캐시 위치(`data/locations.json`), 등급, 고아 캐시, Electron·실행 중 보호, Ollama, 스냅샷, deep |
-| `internal/report` | JSON 스키마 타입, 한국어 요약, 런타임 배지 |
-| `internal/exec` | 외부 명령 실행기(타임아웃, 경고 수집, 엄격 모드) |
-| `internal/cmd` | cobra 명령 |
-
-부르는 곳이 없는 함수: `clean.BuildCombinedPlan`/`BuildCombinedUpgradePlan`(여러 개 선택용, TUI가 쓰던 것), `exec.RunJSON`, `disk.BuildOllamaPlan`, `disk.SumDuKB`, `source.extractVersion`.
+먼저 만든 Go 명령줄 버전(`internal/…`)은 Swift 앱이 같은 일을 하게 되어 2026-11-21 지웠다(커밋 `263d980`까지 남아 있음 — `git show 263d980:internal/clean/clean.go`처럼 볼 수 있다). 위 규칙의 괄호 안 Go 위치는 그 기록을 가리킨다. 옮기지 않은 것: `trace <이름>`(한 항목이 어디 깔렸는지), 오래된 `node_modules` 찾기, `--json` 출력.
 
 ## 테스트 관례
 - **안전 판정은 전부 순수 함수 + 테이블 테스트**(파일 시스템·외부 명령 없이). 파일 시스템이 꼭 필요하면 임시 폴더에 실제 파일을 만들어서
-- 외부 명령 파서는 실제 출력 샘플을 fixture로 저장해 검증(Go: `internal/source/testdata/`)
+- 외부 명령 파서는 실제 출력 샘플(이 맥에서 받은 것)을 테스트 안에 넣어 검증
 - **실기 오탐이 나오면 반드시 회귀 테스트로 고정**
-- 동작이 바뀌면 안 되는 변경은 전후 출력을 diff로 비교(용량·생성 시각은 제외). Swift 구현은 같은 맥에서 Go판 `--json` 출력과 대조해 빠진 것이 없는지 본다
+- 동작이 바뀌면 안 되는 변경은 전후 출력을 diff로 비교(용량·생성 시각은 제외). 새 기능은 이 맥의 실제 데이터로 돌려 보고(스크래치 도구로 계획·결과를 출력) 오탐을 찾는다

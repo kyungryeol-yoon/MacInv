@@ -2,19 +2,18 @@
 
 **내 맥에 뭐가 어디 깔려 있는지** 한눈에 보고, 업데이트할 것을 알려 주고, 지울 때는 잔여물까지 안전하게 정리하는 macOS 메뉴 막대 앱.
 
-> **만드는 중입니다.** SwiftUI 메뉴 막대 앱으로 새로 만들고 있고, 완성되면 Homebrew로 배포합니다.
-> 지금 저장소에 있는 Go 코드는 먼저 만들어 이 맥에서 검증한 명령줄 버전으로, 새 앱의 참고용입니다.
+메뉴 막대 아이콘을 누르면 요약 카드(업데이트·정리할 수 있는 공간·설치된 것)가 뜨고, 「열기」로 전체 목록 창을 엽니다. 오른쪽 클릭은 짧은 메뉴(열기·다시 스캔·끝내기).
 
 ## 하는 일
 
-- **인벤토리** — 앱, Homebrew(formula·cask), npm 전역·pipx·cargo·Go 실행 파일, App Store 앱, launchd 항목, 언어 런타임(node·python·go·rust·java…)을 한 번에 모아 봅니다. 앱 용량은 번들뿐 아니라 `~/Library`의 데이터·캐시까지 합쳐서 보여 줍니다.
+- **인벤토리** — 앱, Homebrew(formula·cask), npm 전역·pipx·cargo·Go 실행 파일, App Store 앱, 백그라운드 항목(LaunchAgent·Daemon과 그 주인), 언어 런타임(node·python·go·rust·java…)을 한 번에 모아 봅니다. 앱 용량은 번들뿐 아니라 `~/Library`의 데이터·캐시까지 합쳐서 보여 줍니다.
 - **업데이트** — brew·npm·App Store의 업데이트 대기 목록. 런타임은 지원 종료(EOL)와 "안전한 패치 / 메이저 업그레이드"를 구분해 보여 줍니다.
 - **디스크** — 디스크를 무엇이 차지하고 있는지(개발 캐시·모델·빌드 산출물·Electron 앱 캐시). 도구는 이미 지웠는데 캐시만 남은 **고아 캐시**도 찾아냅니다.
 - **정리** — 앱이나 패키지를 지울 때 남는 설정·캐시까지 함께 정리하고, 이미 지운 앱이 남긴 데이터도 찾아 줍니다.
 
 ## 안전 원칙
 
-- 먼저 **무엇을 지울지 계획만** 보여 주고, 확인한 뒤에만 실행합니다.
+- 먼저 **무엇을 지우고 무엇을 남기는지** 확인 화면으로 보여 주고, 누른 뒤에만 실행합니다. 되돌리기 어려운 것은 한 번 더 묻습니다.
 - 바로 지우지 않고 **휴지통으로** 옮깁니다.
 - 시스템 경로와 애플 기본 앱은 건드리지 않습니다. 다른 앱이 함께 쓰는 폴더(Google·Microsoft 등 벤더 공유 폴더)는 남깁니다.
 - 확신도를 구분합니다. 확실한 것(번들 ID 일치)과 이름만 비슷한 것을 따로 표시하고, 이름만 비슷한 것은 직접 골라야만 지웁니다.
@@ -23,20 +22,32 @@
 ## 설치
 
 ```sh
-brew install --cask kyungryeol-yoon/tap/macinv   # 예정
+brew install --cask kyungryeol-yoon/tap/macinv
 ```
+
+Apple silicon · macOS 15 이상. 애플 개발자 서명을 하지 않은 앱이라 처음 열 때 「확인되지 않은 개발자」 경고가 나오면 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**(한 번만).
+
+### 권한
+
+**권한 없이도 동작합니다**(목록·업데이트·대부분의 용량). 필요할 때만 켜세요 — MacInv가 필요한 곳에서 이유와 설정 버튼을 보여 줍니다.
+
+- **전체 디스크 접근** — 다른 앱의 컨테이너·그룹 컨테이너까지 정확히 재고 정리
+- **앱 관리** — 다른 개발자의 앱을 휴지통으로 옮기기
+
+켠 뒤에는 MacInv를 다시 시작해야 적용됩니다. 업데이트 후 권한이 풀리면 목록에서 MacInv를 지운 뒤 다시 추가하세요.
 
 ## 개발
 
-지금은 Go 참고 구현만 있습니다(Go 1.25+).
+Swift 6 툴체인(Xcode 16 이상 — 개발은 Xcode 27), Xcode 프로젝트 없이 SwiftPM만 씁니다.
 
 ```sh
 git clone https://github.com/kyungryeol-yoon/MacInv.git && cd MacInv
-go test ./...
-go run . scan        # 전체 스캔 요약 (outdated · trace <이름> · runtimes · disk · clean <이름> · update · orphans)
+swift test              # 로직(MacInvCore) 테스트
+./build.sh              # build/MacInv.app + zip
+./build.sh install      # 「응용 프로그램」에 설치하고 다시 실행
 ```
 
-정리 명령(`clean`·`update`·`orphans`·`disk`)은 기본으로 계획만 출력하고, `--apply`를 붙여야 확인 후 실행합니다.
+`v1.2.3` 태그를 올리면 GitHub Actions가 빌드해 Release에 올리고 [homebrew-tap](https://github.com/kyungryeol-yoon/homebrew-tap)의 cask를 갱신합니다.
 
 개발 메모와 설계 결정은 [`CLAUDE.md`](./CLAUDE.md)에 있습니다.
 
