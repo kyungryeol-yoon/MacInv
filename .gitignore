@@ -1,6 +1,8 @@
-# 빌드 산출물
-macinv
+# 빌드 산출물 (macinv는 루트의 Go 바이너리만 — 앞에 /가 없으면 macOS 대소문자 무시로 Sources/MacInv까지 빠진다)
+/macinv
 /dist/
+.build/
+/build/
 
 # 개인 스캔 결과 (호스트명·설치 목록 등 개인 정보 포함 — 절대 커밋 금지)
 inventory.json

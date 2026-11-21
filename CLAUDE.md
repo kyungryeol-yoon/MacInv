@@ -16,8 +16,8 @@ macOS에 설치된 소프트웨어 전체를 스캔해 "내 맥에 뭐가 어디
 
 - GitHub: https://github.com/kyungryeol-yoon/MacInv (public, `main`). 2026-11-20 `macinv`에서 이름 변경
 - 커밋·푸시·tap 저장소 변경은 사용자가 요청할 때만. 설명은 한국어
-- 앱 아이콘(2026-11-21 정함, 시안 「E2」): **열린 노트북 화면 안에 목록 3줄**(앱 타일 주황·파랑·보라 + 용량 막대) **+ 줄 끝 상태 배지 ↑ 업데이트(파랑) · ✓ 최신(초록) · − 삭제(빨강)** — 확인·업데이트·삭제를 한 그림에. 바탕은 DiSwitch와 같은 어두운 824 둥근 사각형, 테두리에 밝은 선. 모니터 모양은 DiSwitch(모니터 두 대)와 겹쳐서 피했다. **SF Symbol은 앱 아이콘에 쓰지 않는다**(애플 라이선스상 아이콘·로고 사용 금지 — 배지 기호도 도형으로 그림). 그리는 코드는 앱 코드 작업 때 `packaging/make-icon.swift`로 옮긴다 — 시안 코드(`conceptE2`)는 임시 폴더 `/private/tmp/claude-501/-Users-yoon-develop-macos-MacInv/7f287784-3200-4f0f-8e6d-cda82099da97/scratchpad/icons/draft.swift`(재부팅·정리 시 사라질 수 있음 — 없으면 위 설명대로 다시 그린다), 시안 페이지 https://claude.ai/artifact/G4cJcafM9sejmmTz6gUP2h
-- 메뉴 막대 아이콘: 미정 — **가장 중요**, Swift 앱 코드 작업하면서 실제 메뉴 막대에 띄워 보고 정한다(후보 `laptopcomputer`·`list.bullet.rectangle`·`shippingbox`. SF Symbol 템플릿. 업데이트·정리할 것이 있으면 채움 모양 또는 점으로 상태 표시)
+- 앱 아이콘(2026-11-21 정함, 시안 「F1」): **밝은 목록 카드 하나에 3줄**(앱 타일 주황·파랑·보라 + 용량 막대) **+ 줄 끝 상태 배지 ↑ 업데이트(파랑) · ✓ 최신(초록) · − 삭제(빨강)** — 확인·업데이트·삭제를 한 그림에, 메뉴 막대 `checklist`와 같은 "목록 + 줄 끝 상태". 바탕은 DiSwitch와 같은 어두운 824 둥근 사각형. 노트북 안에 넣은 안(E2)은 화면이 작아져 뺐고, 모니터 모양은 DiSwitch와 겹친다. **SF Symbol은 앱 아이콘에 쓰지 않는다**(애플 라이선스상 아이콘·로고 사용 금지 — 배지 기호도 도형으로 그림). 그리는 코드 `packaging/make-icon.swift` → `packaging/AppIcon.icns`. 시안 비교 페이지 https://claude.ai/artifact/G4cJcafM9sejmmTz6gUP2h
+- 메뉴 막대 아이콘(2026-11-21 정함): SF Symbol **`checklist`**(템플릿) — 노트북(`laptopcomputer`)은 메뉴 막대에서 눈에 안 띄어 뺐다. 업데이트·정리할 것이 있으면 점 등으로 상태 표시(방식은 3단계에서)
 
 ## 새 구현에서 처음부터 넣을 것
 
