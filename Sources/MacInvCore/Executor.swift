@@ -67,8 +67,9 @@ public struct Executor: Sendable {
     }
 
     for t in plan.targets {
-      // 앱 삭제: 실행 중이면 대상 전체를 건너뛴다(번들을 옮기면 켜진 앱이 깨진다)
-      if t.kind == .app, let bundle = t.trash.first(where: { $0.path.hasSuffix(".app") }), let app = await runningOwner(bundle.path) {
+      // 앱 삭제·cask 삭제: 실행 중이면 대상 전체를 건너뛴다(번들을 지우면 켜진 앱이 깨진다).
+      // cask는 `uninstall quit:`이 없으면 brew가 앱을 끄지 않고 번들을 지운다(2026-11-21 점검) — 앱 삭제와 같은 확인
+      if isRemoval(t), let app = await runningApp(t) {
         let id = await emit(t.name, "\(t.name) 삭제", .running)
         await finish(id, t.name, "\(t.name) 삭제", .skipped, "\(app)이(가) 실행 중 — 앱을 끈 뒤 다시 하세요")
         continue
@@ -110,16 +111,42 @@ public struct Executor: Sendable {
     return sum
   }
 
+  /// 앱을 없애는 대상인가 — 앱 삭제, 또는 `brew uninstall --cask`(업그레이드는 아님)
+  func isRemoval(_ t: PlanTarget) -> Bool {
+    t.kind == .app || (t.kind == .brewCask && t.commands.contains { $0.starts(with: ["brew", "uninstall"]) })
+  }
+
+  /// 대상의 앱 번들 중 실행 중인 것(앱 이름). 번들 목록이 비었으면 휴지통 목록의 .app으로
+  func runningApp(_ t: PlanTarget) async -> String? {
+    let bundles = t.appBundles.isEmpty ? t.trash.map(\.path).filter { $0.hasSuffix(".app") } : t.appBundles
+    for b in bundles { if let app = await runningOwner(b) { return app } }
+    return nil
+  }
+
   /// 마지막 관문 — 계획에 들어 있어도 여기서 한 번 더 막는다.
   func refuse(_ path: String) -> String? {
     let p = (path as NSString).standardizingPath
     if p.isEmpty || p == "/" || !p.hasPrefix("/") { return "경로가 이상합니다 — 옮기지 않았습니다" }
     if Paths.isProtected(p) { return "시스템 보호 경로 — 옮기지 않았습니다" }
     if me.isSelf(path: p) { return "MacInv 자신의 것 — 옮기지 않았습니다" }
-    let home = (me.home as NSString).standardizingPath
-    if [home, home + "/Library", home + "/Library/Application Support", home + "/Library/Caches", home + "/Library/Preferences",
-        "/Applications", "/Library", "/Users", "/Volumes"].contains(p) { return "통째로 옮기면 안 되는 폴더 — 옮기지 않았습니다" }
+    if Self.wholeFolders(home: me.home).contains(p.lowercased()) || Self.isVolumeRoot(p) { return "통째로 옮기면 안 되는 폴더 — 옮기지 않았습니다" }
     return nil
+  }
+
+  /// 통째로 옮기면 안 되는 폴더(소문자 — APFS는 기본으로 대소문자를 가리지 않아 `/applications`도 같은 곳).
+  /// 지금 계획에서 이런 경로가 나오지는 않지만 안전장치로 둔다(2026-11-21 점검에서 보강).
+  static func wholeFolders(home: String) -> Set<String> {
+    let h = (home as NSString).standardizingPath
+    let inHome = ["", "/Library", "/Library/Application Support", "/Library/Caches", "/Library/Preferences",
+                  "/Library/Containers", "/Library/Group Containers", "/Library/LaunchAgents", "/Library/Logs",
+                  "/Documents", "/Desktop", "/Downloads", "/Pictures", "/Movies", "/Music", "/Applications", "/.Trash"]
+    return Set((inHome.map { h + $0 } + ["/Applications", "/Library", "/Users", "/Volumes", "/private", "/opt", "/opt/homebrew"]).map { $0.lowercased() })
+  }
+
+  /// `/Volumes/<디스크>` 자체(외장 디스크 전체)
+  static func isVolumeRoot(_ p: String) -> Bool {
+    let parts = p.split(separator: "/")
+    return parts.count == 2 && parts[0].lowercased() == "volumes"
   }
 
   static func message(_ e: Error) -> String {

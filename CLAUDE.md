@@ -34,7 +34,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 5-2(업데이트·고아 잔여물·디스크·Ollama 계획) ✅ · 6(실행: `Executor.swift`, 확인 화면 → 로그 → 결과) ✅ · 다음 7 배포 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
 - 화면: 메뉴 막대는 요약·바로가기(창 열기·다시 스캔·권한 안내 — 단계마다 "손댈 게 있나"를 늘려 간다), 목록은 별도 창(왼쪽 분류 + 표)
 - `Paths.swift`는 측정(`sizePaths`)과 삭제 계획(`leftovers`, 5단계)이 **같이 쓰는 한 벌**. glob을 쓰지 않고 폴더 목록을 문자열로 비교(이름의 `[`·`*`·`?`가 패턴이 될 수 없음). 벤더 표는 `Vendors.swift`의 JSON 문자열(SwiftPM 리소스 번들은 .app 서명과 안 맞음)
-- **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행
+- **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행. **타임아웃은 프로세스 그룹째**(2026-11-21 점검): 바로 아래 프로세스만 끄면 그 하위 프로세스(brew → ruby·curl, `sh -c 'x &'`)가 파이프를 잡고 있어 읽기가 안 끝났다(실측 30초 멈춤). `posix_spawn`으로 새 그룹에서 시작 → 타임아웃 때 `killpg` SIGTERM → 2초 뒤 SIGKILL → 3초 뒤에도 안 닫히면 읽기를 포기하고 돌아온다. stdin은 /dev/null(sudo 등 대화형 입력은 바로 실패)
 - 용량이 권한 때문에 덜 잡히면 `dataPartial` + `deniedPaths`(잰 폴더 단위)로 "일부만 측정 · 읽지 못한 곳"을 보여 준다
 - 데이터 파일(`vendors.json`·`locations.json`)은 쓰는 단계(2·4)에서 리소스로 가져온다 — 그때 `build.sh`가 SwiftPM 리소스 번들을 앱에 복사하게 고칠 것
 
@@ -57,10 +57,12 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 
 ### 삭제 안전
 - **기본은 계획만**(읽기 전용). 실행은 명시적 승인 뒤에만. **rm 금지, 휴지통으로만.** 휴지통으로 옮긴 건 "휴지통을 비우기 전까지 실제로는 안 빈다"를 계획에 적는다
+- **실행 직전 마지막 관문**(`Executor.refuse`): 보호 경로·MacInv 자신·**통째로 옮기면 안 되는 폴더**(홈, ~/Library와 그 주요 하위·Containers·Group Containers, Documents·Desktop·Downloads·Pictures·Movies·Music, ~/Applications, /Applications, /Volumes/<디스크> 자체 등 — 대소문자 무시)는 계획에 들어 있어도 막는다. 지금 계획에서 나오지 않는 경로라도 안전장치로 둔다(2026-11-21 점검)
 - **보호 경로**: `/System`, `/usr`, `/bin`, `/sbin`, `/Library/Apple` 접근 금지. `/Applications`의 애플 기본 앱(`com.apple.*`, Safari 등) 보호. 실행 직전 한 번 더 확인 (`paths.IsProtected`/`IsAppleSystemApp`)
 - 접두사 블랙리스트는 `~/Library` 아래 애플 데이터를 못 거른다 → 와일드카드 결과는 **경로 마디 단위로** `com.apple.*`를 다시 거른다 (`disk.HasAppleComponent`)
 - **확신도 3단계**: [확실] Bundle ID 일치 · [확신중간] 벤더 폴더 전체·고아 잔여물 · [확신낮음] 이름 기반. 기본 실행은 확실+중간, 낮음은 따로 골라야 포함
 - **Bundle ID 접두사가 다른 앱을 삼키지 않게**(6-1, 데이터 손실 직전): `com.google.Chrome*`가 `com.google.Chrome.canary`를 [확실]로 잡았다. 경로에서 뽑은 파생 ID가 **설치된 다른 앱에 귀속**되면 빼고 "타 앱(<이름>) 소유 — 보존" 표시. 귀속은 **가장 긴 ID가 이긴다**(둘 다 깔린 상태에서 canary 삭제 시 canary 파생물이 Chrome 것으로 오판되면 안 됨). **어느 앱도 소유하지 않는 파생물(`.helper` 등)은 남겨서 지운다** — 이 구분이 핵심 (`clean.excludeOtherAppIDs`/`ownerOfID`, `TestLeftoversDoNotSwallowOtherApp`)
+- **Bundle ID 접두사는 마디 경계까지만**(2026-11-21 점검): `com.foo.Bar`는 `com.foo.Bar`·`com.foo.Bar.*`만 잡고 `com.foo.BarTender`는 안 잡는다. 그룹 컨테이너도 ID 앞뒤가 마디 경계일 때만. 설치 안 된 다른 앱·앱 없는 도구의 데이터는 `excludeOtherApps`로 걸러지지 않으므로 매칭 단계에서 막아야 한다 (`Paths.matches`, `leftoversRespectSegmentBoundary`)
 - **앱 이름은 패턴이 아니다**(6-2): 이름 기반 경로는 리터럴 존재 확인. `"Foo [beta]"`를 glob으로 쓰면 `Foo b`를 삼킨다. 패턴에 끼우는 가변 부분(Bundle ID)은 이스케이프
 - **이름 매칭은 정확 일치 우선**, 없을 때만 부분일치 + "이름 부분일치" 경고 (`clean.matchApps`)
 - **못 옮기는 이유는 두 가지로 나눈다**(2026-11-21 실측): 내 소유인데 쓰기가 막힌 것(`Claude.app`·`Chrome.app` 같은 다른 개발자 앱 번들 = macOS 「앱 관리」 보호, 다른 앱 데이터 폴더 = 앱 데이터 보호)은 **관리자 암호로 안 풀리고** MacInv에 권한을 줘야 한다 → 🛡 + 설정 열기. root 소유(pkg로 깐 앱·`/Library/LaunchDaemons`)는 🔑 관리자 필요. 판정은 MacInv 프로세스 기준이라 터미널에서 잰 결과와 다를 수 있다 (`Planner.trashAccess`)
@@ -100,6 +102,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - **Electron 앱 캐시**(Notion 66 GB 사례): 앱을 하드코딩하지 않고 `~/Library/Application Support/*/` 아래 `Cache`·`Code Cache`·`GPUCache`·`Service Worker/CacheStorage`·`Service Worker/ScriptCache`. **`Partitions/<파티션>/` 아래도 같은 구조**(Notion·Slack 워크스페이스, Claude preview). 앱별 합계는 파티션이 아니라 **앱 단위로** 묶는다
   - **`IndexedDB`·`Local Storage`·`Cookies`·`Session Storage`는 절대 포함 금지**(Partitions 아래도) — 로그인 세션·로컬 데이터라 지우면 캐시 정리가 아니라 데이터 삭제 (`TestElectronLocationNeverTargetsUserData`)
   - 앱 단위 삭제 계획과 경로가 겹치면 넓은 쪽 하나만 (`TestElectronPathsNeverNest`)
+- **실행 중인 앱은 지우지 않는다 — cask도 마찬가지**(2026-11-21 점검): `uninstall quit:`이 없는 cask는 brew가 앱을 끄지 않고 번들을 지운다. 계획이 cask의 앱 번들 경로(`appBundles`)를 담고 실행 직전에 확인해 건너뛴다. 업그레이드는 막지 않고 경고만
 - **실행 중인 앱의 캐시는 지우지 않는다** — Chromium은 캐시 파일을 연 채로 돈다(켜둔 채 지우면 오작동). 기본 제외 + "실행 중(<앱>) — 종료 후 다시". 요약에 "⏸ N개 앱 실행 중이라 제외 (총 X GB)"와 앱별 내역
   - 디렉토리 이름 ↔ 앱 매칭: 정규화 완전 일치 → 별칭 표 → 앱 이름을 **단어로** 쪼갰을 때 한 단어로 들어 있음("Code" ⊂ "Visual Studio Code"). **부분 문자열 금지**("Home"/"Mail"). 애매하면 보호 쪽으로. 헬퍼가 중첩된 번들은 전부 실행 중으로 (`disk.MatchesRunningApp`)
   - **조회 실패 ≠ 실행 중인 앱 없음.** 예전엔 실패 시 보호가 **조용히 꺼졌다** — 안전장치가 조용히 사라지는 건 처음부터 없는 것보다 나쁘다. 실패했고 Electron 캐시가 계획에 담겼을 때만 계획 맨 위에 경고

@@ -63,6 +63,25 @@ struct ExecutorTests {
     #expect(s.failed == 5)
   }
 
+  /// 통째로 옮기면 안 되는 폴더(2026-11-21 점검에서 보강) — 대소문자·끝의 /·.. 섞여도 막는다. 그 안의 항목은 막지 않는다
+  @Test(arguments: [
+    "/Users/me", "/Users/me/", "/Users/me/Documents", "/Users/me/Desktop", "/Users/me/Downloads", "/Users/me/Pictures",
+    "/Users/me/Movies", "/Users/me/Music", "/Users/me/Applications", "/Users/me/Library/Containers", "/Users/me/Library/Group Containers",
+    "/Users/me/Library/LaunchAgents", "/Users/me/.Trash", "/users/me/library/caches", "/Users/me/Library/Caches/../Preferences",
+    "/Volumes/SSD", "/Volumes/Realtek RTL9210 NVME Media", "/Applications", "/opt/homebrew",
+  ])
+  func refusesWholeFolders(_ p: String) {
+    #expect(exec(Recorder()).refuse(p) != nil, "\(p)")
+  }
+
+  @Test(arguments: [
+    "/Users/me/Documents/old.zip", "/Users/me/Library/Containers/com.gone.app", "/Users/me/Library/Group Containers/ABCDE12345.com.gone",
+    "/Users/me/Applications/Chrome Apps.localized/Gmail.app", "/Volumes/SSD/.ollama/models", "/Applications/Foo.app",
+  ])
+  func allowsItemsInsideThem(_ p: String) {
+    #expect(exec(Recorder()).refuse(p) == nil, "\(p)")
+  }
+
   @Test func runningAppAndMissingPathAreSkipped() async {
     let rec = Recorder()
     let app = target(.app, "Claude", paths: [("/Applications/Claude.app", .high), ("/Users/me/Library/Caches/com.anthropic", .high)])
@@ -72,6 +91,28 @@ struct ExecutorTests {
       .execute(plan([app, cache]), low: []) { _ in }
     #expect(rec.trashed.isEmpty)
     #expect(s.skipped == 3 && s.failed == 0)
+  }
+
+  /// cask 삭제도 실행 중이면 건너뛴다(2026-11-21 점검) — `uninstall quit:`이 없는 cask면 켜진 채 번들이 지워진다.
+  /// 업그레이드는 막지 않는다(계획에서 경고만).
+  @Test func runningCaskAppIsNotUninstalled() async {
+    let rec = Recorder()
+    var cask = target(.brewCask, "foo", cmds: [["brew", "uninstall", "--cask", "foo"]], paths: [("/Users/me/Library/Preferences/com.foo.plist", .high)])
+    cask.appBundles = ["/Applications/Foo.app"]
+    var up = target(.brewCask, "foo", cmds: [["brew", "upgrade", "--cask", "foo"]])
+    up.appBundles = ["/Applications/Foo.app"]
+    let s = await exec(rec, running: ["/Applications/Foo.app": "Foo"]).execute(plan([cask]), low: []) { _ in }
+    #expect(rec.ran.isEmpty && rec.trashed.isEmpty && s.skipped == 1)
+    _ = await exec(rec, running: ["/Applications/Foo.app": "Foo"]).execute(plan([up]), low: []) { _ in }
+    #expect(rec.ran == [["brew", "upgrade", "--cask", "foo"]])
+  }
+
+  /// 계획이 cask의 앱 번들 경로를 담는다 — 실행기가 그걸로 실행 중인지 본다
+  @Test func caskPlanCarriesAppBundle() {
+    var inv = Inventory()
+    inv.apps = [AppItem(name: "Foo", path: "/Applications/Foo.app", bundleID: "com.foo", version: nil, dateAdded: nil, origin: .brewCask("foo"))]
+    let env = Planner.Env(home: "/Users/me", fs: fakeFS([:]), access: { _ in .ok }, me: me)
+    #expect(Planner.removal(cask: BrewCask(token: "foo", version: nil, appNames: []), inventory: inv, env: env).targets[0].appBundles == ["/Applications/Foo.app"])
   }
 
   @Test func selfUpgradeIsFlagged() async {

@@ -77,6 +77,30 @@ struct CommandRunnerTests {
     #expect(Date().timeIntervalSince(start) < 5)
   }
 
+  /// 하위 프로세스가 파이프를 잡고 있어도 제때 돌아온다(2026-11-21 점검). 바로 아래 sh만 끄면
+  /// 뒤에 띄운 sleep이 stdout을 계속 열고 있어 읽기가 안 끝났다 — brew처럼 하위 프로세스를 띄우는 명령에서 생긴다.
+  @Test func timeoutKillsWholeProcessGroup() async {
+    let start = Date()
+    await #expect(throws: CommandError.timedOut(command: "sh -c sleep 30 & sleep 30", seconds: 1)) {
+      try await runner.run("sh", ["-c", "sleep 30 & sleep 30"], timeout: 1)
+    }
+    #expect(Date().timeIntervalSince(start) < 8)
+  }
+
+  /// 자식이 정상으로 끝났는데 손자가 파이프를 잡고 있어도(정상 백그라운드) 제한 시간까지 기다리지 않는다 —
+  /// 몇 초 뒤 그때까지의 출력과 실제 종료 코드로 성공(2026-11-21 점검). 손자는 끄지 않는다.
+  @Test func backgroundGrandchildDoesNotBlockAfterTimeout() async throws {
+    let start = Date()
+    let r = try await runner.run("sh", ["-c", "sleep 8 & echo started"], timeout: 30, strict: true)
+    #expect(r.stdout == "started\n" && r.exitCode == 0)
+    #expect(Date().timeIntervalSince(start) < 6)
+  }
+
+  /// waitpid 오류(이미 거둔 pid 등)는 0(성공)이 아니라 -1
+  @Test func reapErrorIsNotSuccess() {
+    #expect(CommandRunner.reap(-12345) == -1)
+  }
+
   @Test func largeOutputDoesNotDeadlock() async throws {
     // 파이프 버퍼(64KB)를 넘는 출력도 끝까지 읽는다
     let r = try await runner.run("sh", ["-c", "yes x | head -n 200000"])

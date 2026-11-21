@@ -68,6 +68,9 @@ public struct PlanTarget: Sendable, Identifiable {
   public var excluded: [Exclusion] = []
   public var warnings: [String] = []
   public var suggestions: [String] = []
+  /// 이 대상이 지우는 앱 번들(앱·cask) — 실행 직전에 켜져 있는지 확인하는 데 쓴다.
+  /// cask 번들은 brew가 지우므로 휴지통 목록(trash)에는 없어서 따로 둔다
+  public var appBundles: [String] = []
   /// 명령이 비울 몫(휴지통 경로 밖) — 대상을 빼면 회수 예상에서도 빠지게 대상마다 둔다
   public var commandReclaimKB = 0
   public init(kind: TargetKind, name: String, bundleID: String? = nil) { self.kind = kind; self.name = name; self.bundleID = bundleID }

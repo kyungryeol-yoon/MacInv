@@ -12,6 +12,19 @@ func fakeFS(_ tree: [String: [String]]) -> FileSystem {
 struct PathsTests {
   let home = "/Users/me"
 
+  /// 마디 경계(2026-11-21 점검): com.foo.Bar가 com.foo.BarTender(설치 안 된 다른 앱·도구)를 삼키면 안 된다.
+  @Test func leftoversRespectSegmentBoundary() {
+    let fs = fakeFS([
+      "\(home)/Library/Preferences": ["com.foo.Bar.plist", "com.foo.Bar.helper.plist", "com.foo.BarTender.plist", "com.foo.Bar-old.plist"],
+      "\(home)/Library/Caches": ["com.foo.Bar", "com.foo.BarTender"],
+      "\(home)/Library/Saved Application State": ["com.foo.Bar.savedState", "com.foo.BarTender.savedState"],
+      "\(home)/Library/Group Containers": ["ABCDE12345.com.foo.Bar", "group.com.foo.Bar.shared", "ABCDE12345.com.foo.BarTender", "xcom.foo.Bar"],
+    ])
+    let got = Set(Paths.leftovers(home: home, bundleID: "com.foo.Bar", appName: "", fs: fs).map { ($0.path as NSString).lastPathComponent })
+    #expect(got == ["com.foo.Bar.plist", "com.foo.Bar.helper.plist", "com.foo.Bar", "com.foo.Bar.savedState",
+                    "ABCDE12345.com.foo.Bar", "group.com.foo.Bar.shared"])
+  }
+
   @Test(arguments: ["/System", "/System/Library/x", "/usr/bin/git", "/bin", "/sbin/x", "/Library/Apple/x", "/usr/../usr/lib"])
   func protected(_ p: String) { #expect(Paths.isProtected(p)) }
 
@@ -49,9 +62,10 @@ struct PathsTests {
   }
 
   @Test func bundleIDMetacharactersAreLiteral() {
-    let fs = fakeFS(["\(home)/Library/Caches": ["com.a.b", "com.a.[b]x", "com.a.?"]])
+    // 패턴이 아니라 글자 그대로 — [b]가 b를 잡지 않는다. 마디 경계 규칙으로 [b]x도 안 잡는다(다른 ID)
+    let fs = fakeFS(["\(home)/Library/Caches": ["com.a.b", "com.a.[b]", "com.a.[b].helper", "com.a.[b]x", "com.a.?"]])
     let got = Paths.leftovers(home: home, bundleID: "com.a.[b]", appName: "", fs: fs).map(\.path)
-    #expect(got == ["\(home)/Library/Caches/com.a.[b]x"])
+    #expect(got == ["\(home)/Library/Caches/com.a.[b]", "\(home)/Library/Caches/com.a.[b].helper"])
   }
 
   @Test(arguments: [

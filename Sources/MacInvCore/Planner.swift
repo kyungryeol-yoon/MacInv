@@ -61,6 +61,7 @@ public enum Planner {
     }
     var t = PlanTarget(kind: .app, name: app.name, bundleID: app.bundleID)
     t.trash = [PlanPath(PathMatch(path: app.path, confidence: .high, reason: "앱 번들"))]
+    t.appBundles = [app.path]
     // 같은 Bundle ID의 다른 사본(다른 위치)
     if let id = app.bundleID {
       for other in inv.apps where other.bundleID == id && other.path != app.path && !Paths.isProtected(other.path) {
@@ -88,6 +89,7 @@ public enum Planner {
     t.commands = [["brew", "uninstall", "--cask", cask.token]]
     for app in inv.apps where app.origin == .brewCask(cask.token) {
       t.bundleID = t.bundleID ?? app.bundleID
+      t.appBundles.append(app.path)
       addData(&t, appName: app.name, bundleID: app.bundleID, inv: inv, env: env)
     }
     t.suggestions.append("앱 번들은 brew가 지웁니다. 남은 설정·캐시는 아래 경로를 휴지통으로 옮깁니다.")

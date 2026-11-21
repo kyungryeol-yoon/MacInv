@@ -77,10 +77,27 @@ public enum Paths {
   }
 
   /// 이름이 Bundle ID 규칙에 맞는가(순수). 접두사 매칭이라 헬퍼·파생 파일(`<ID>.helper.plist`)까지 잡는다.
-  /// 접두사가 다른 앱 ID까지 삼키는 문제(`com.google.Chrome` → `.canary`)는 5단계 계획에서 걷어낸다.
+  /// **마디 경계를 지킨다**: ID 바로 뒤가 끝이거나 `.`일 때만(`.plist`·`.savedState`·`.binarycookies`도 `.`로 시작).
+  /// `com.foo.Bar`가 `com.foo.BarTender`(다른 앱·도구)를 [확실]로 잡으면, 그 앱이 설치돼 있지 않을 때 걸러 줄 장치가 없다(2026-11-21 점검).
+  /// 그룹 컨테이너는 앞에 팀 ID·`group.`이 붙으므로 ID가 **앞뒤 모두 마디 경계**에 놓인 곳이 있으면 일치.
+  /// 접두사가 설치된 다른 앱 ID까지 삼키는 문제(`com.google.Chrome` → `.canary`)는 계획에서 걷어낸다(`Planner.excludeOtherApps`).
   static func matches(_ name: String, id: String, rule: IDRule) -> Bool {
-    if rule.contains { return name.contains(id) }
-    return name.hasPrefix(id) && (rule.suffix.isEmpty || name.hasSuffix(rule.suffix))
+    guard !id.isEmpty else { return false }
+    if rule.contains { return containsOnBoundary(name, id) }
+    return name.hasPrefix(id) && boundaryAfter(name, id.endIndex) && (rule.suffix.isEmpty || name.hasSuffix(rule.suffix))
+  }
+
+  /// i 위치가 이름의 끝이거나 `.`인가
+  static func boundaryAfter(_ name: String, _ i: String.Index) -> Bool { i == name.endIndex || name[i] == "." }
+
+  static func containsOnBoundary(_ name: String, _ id: String) -> Bool {
+    var from = name.startIndex
+    while let r = name.range(of: id, range: from..<name.endIndex) {
+      let before = r.lowerBound == name.startIndex || name[name.index(before: r.lowerBound)] == "."
+      if before && boundaryAfter(name, r.upperBound) { return true }
+      from = name.index(after: r.lowerBound)
+    }
+    return false
   }
 
   /// 이름으로 찾는 위치 — **리터럴 경로**(패턴 아님). [확신낮음].
