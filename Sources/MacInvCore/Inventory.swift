@@ -6,6 +6,9 @@ public struct Inventory: Sendable {
   public var formulae: [BrewFormula] = []
   public var casks: [BrewCask] = []
   public var packages: [PackageItem] = []
+  public var runtimes: [Runtime] = []
+  public var versionManagers: [VersionManagerInfo] = []
+  public var background: [BackgroundItem] = []
   /// 실패했지만 스캔은 계속한 것(사용자에게 보여 준다)
   public var warnings: [String] = []
   public var scannedAt = Date()

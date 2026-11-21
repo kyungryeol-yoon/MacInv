@@ -90,6 +90,7 @@ public enum InventoryScanner {
     async let pipx = scanSimple(runner, "pipx", ["list", "--json"]) { Parse.pipxList(Data($0.utf8)) }
     async let cargo = scanSimple(runner, "cargo", ["install", "--list"]) { Parse.cargoList($0) }
     async let mas = scanSimple(runner, "mas", ["list"]) { Parse.masList($0) }
+    async let runtimes = Runtimes.scan(runner: runner, home: home)
 
     var inv = Inventory()
     let b = await brew
@@ -98,6 +99,9 @@ public enum InventoryScanner {
     var warnings = b.warnings
     for r in await [npm, pipx, cargo, mas] { inv.packages += r.items; warnings += r.warnings }
     inv.packages += goBin(home: home)
+    inv.runtimes = await runtimes
+    inv.versionManagers = Runtimes.versionManagers(home: home)
+    inv.background = Background.scan(apps: inv.apps, home: home)
     inv.warnings = warnings
     inv.scannedAt = Date()
     return inv

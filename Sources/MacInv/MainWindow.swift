@@ -8,13 +8,15 @@ struct MainWindow: View {
   @State private var query = ""
 
   enum Section: String, Hashable, CaseIterable {
-    case apps, formulae, casks, packages, environment
+    case apps, formulae, casks, packages, runtimes, background, environment
     var title: String {
       switch self {
       case .apps: return "앱"
       case .formulae: return "Homebrew 포뮬러"
       case .casks: return "Homebrew 캐스크"
       case .packages: return "패키지"
+      case .runtimes: return "런타임"
+      case .background: return "백그라운드 항목"
       case .environment: return "환경"
       }
     }
@@ -24,6 +26,8 @@ struct MainWindow: View {
       case .formulae: return "terminal"
       case .casks: return "shippingbox"
       case .packages: return "cube"
+      case .runtimes: return "chevron.left.forwardslash.chevron.right"
+      case .background: return "gearshape.2"
       case .environment: return "gearshape"
       }
     }
@@ -52,6 +56,8 @@ struct MainWindow: View {
           case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name })
           case .casks: CasksTable(items: filtered(model.inventory!.casks) { $0.token + " " + $0.appNames.joined(separator: " ") })
           case .packages: PackagesTable(items: filtered(model.inventory!.packages) { $0.name })
+          case .runtimes: RuntimesView(runtimes: filtered(model.inventory!.runtimes) { $0.name }, managers: model.inventory!.versionManagers)
+          case .background: BackgroundTable(items: filtered(model.inventory!.background) { ($0.label ?? "") + " " + $0.file + " " + $0.owner.label })
           case .environment: EnvironmentView()
           }
         }
@@ -83,6 +89,8 @@ struct MainWindow: View {
     case .formulae: return inv.formulae.count
     case .casks: return inv.casks.count
     case .packages: return inv.packages.count
+    case .runtimes: return inv.runtimes.filter(\.installed).count
+    case .background: return inv.background.count
     case .environment: return inv.warnings.isEmpty ? nil : inv.warnings.count
     }
   }
@@ -191,5 +199,72 @@ struct EnvironmentView: View {
       }
     }
     .formStyle(.grouped)
+  }
+}
+
+struct RuntimesView: View {
+  let runtimes: [Runtime]
+  let managers: [VersionManagerInfo]
+  var body: some View {
+    VSplitView {
+      Table(runtimes) {
+        TableColumn("언어") { r in Text(r.name).foregroundStyle(r.installed ? .primary : .secondary) }
+          .width(min: 70, ideal: 80)
+        TableColumn("버전") { r in Text(r.installed ? (r.version ?? "?") : "설치 안 됨").foregroundStyle(r.installed ? .primary : .secondary) }
+          .width(min: 70, ideal: 90)
+        TableColumn("관리") { r in
+          if let a = r.active { Text(a.manager.label + (a.package.map { " \($0)" } ?? "")) } else { Text("—").foregroundStyle(.secondary) }
+        }
+        .width(min: 80, ideal: 110)
+        TableColumn("쓰이는 경로") { r in
+          HStack(spacing: 4) {
+            if r.conflict { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(conflictHelp(r)) }
+            Text(r.active?.path ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+          }
+        }
+      }
+      if !managers.isEmpty {
+        Form {
+          SwiftUI.Section("버전 매니저가 관리 중인 버전") {
+            ForEach(managers) { m in LabeledContent(m.name) { Text(m.versions.joined(separator: ", ")).textSelection(.enabled) } }
+          }
+        }
+        .formStyle(.grouped)
+        .frame(minHeight: 120)
+      }
+    }
+  }
+
+  private func conflictHelp(_ r: Runtime) -> String {
+    "PATH에 서로 다른 \(r.name)가 \(Set(r.origins.map(\.resolved)).count)개 있습니다 — 맨 위 것이 쓰입니다:\n" +
+      r.origins.map { "\($0.path) (\($0.manager.label))" }.joined(separator: "\n")
+  }
+}
+
+struct BackgroundTable: View {
+  let items: [BackgroundItem]
+  var body: some View {
+    Table(items) {
+      TableColumn("이름") { b in
+        HStack(spacing: 4) {
+          if b.owner == .unknown || b.programMissing { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+          Text(b.label ?? ((b.file as NSString).lastPathComponent as NSString).deletingPathExtension)
+        }
+      }
+      .width(min: 200, ideal: 260)
+      TableColumn("주인") { b in Text(b.owner.label).foregroundStyle(b.owner == .unknown ? .orange : .primary) }
+        .width(min: 120, ideal: 170)
+      TableColumn("상태") { b in Text(state(b)).foregroundStyle(b.programMissing || b.isEmpty ? .orange : .secondary) }
+        .width(min: 90, ideal: 120)
+      TableColumn("종류") { b in Text(b.kind.label).foregroundStyle(.secondary) }
+        .width(min: 90, ideal: 110)
+      TableColumn("실행 파일") { b in Text(b.program ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+    }
+  }
+
+  private func state(_ b: BackgroundItem) -> String {
+    if b.isEmpty { return "내용 없음" }
+    if b.programMissing { return "실행 파일 없음" }
+    return b.runAtLoad ? "로그인 시 실행" : "필요할 때 실행"
   }
 }
