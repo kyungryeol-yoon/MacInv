@@ -35,7 +35,15 @@ final class AppModel: ObservableObject {
   @Published var inventory: Inventory?
   @Published var scanning = false
   @Published var measuring = false
+  /// 데이터 용량 측정 진행(끝낸 앱 수, 전체)
+  @Published var measureProgress: (done: Int, total: Int)?
   private var observers: [NSObjectProtocol] = []
+
+  var measuringText: String? {
+    guard measuring else { return nil }
+    if let p = measureProgress { return "용량 재는 중 \(p.done)/\(p.total)" }
+    return "용량 재는 중…"
+  }
 
   var notice: Permissions.Notice {
     Permissions.notice(fullDiskAccess, grantedBefore: UserDefaults.standard.bool(forKey: Self.grantedOnceKey))
@@ -68,9 +76,15 @@ final class AppModel: ObservableObject {
       runner = r; pathFromShell = fromShell; found = f
       let inv = await InventoryScanner.scan(runner: r)
       inventory = inv; scanning = false
+      // 번들(du 한 번) → 데이터(앱마다, 앱 하나 끝날 때마다 진행률). 목록은 먼저 보여 준다.
       measuring = true
       let sized = await InventoryScanner.measureBundles(inv.apps, runner: r)
-      inventory?.apps = sized; measuring = false
+      inventory?.apps = sized
+      measureProgress = (0, sized.count)
+      let withData = await InventoryScanner.measureData(sized, runner: r) { done, total in
+        Task { @MainActor in self.measureProgress = (done, total) }
+      }
+      inventory?.apps = withData; measuring = false; measureProgress = nil
     }
   }
 
@@ -91,7 +105,7 @@ struct MenuContent: View {
   var body: some View {
     if let inv = model.inventory {
       Text("앱 \(inv.apps.count)개 · brew \(inv.formulae.count + inv.casks.count)개 · 패키지 \(inv.packages.count)개")
-      Text("스캔 \(inv.scannedAt.formatted(date: .omitted, time: .shortened))\(model.measuring ? " · 용량 재는 중…" : "")")
+      Text("스캔 \(inv.scannedAt.formatted(date: .omitted, time: .shortened))\(model.measuringText.map { " · " + $0 } ?? "")")
         .foregroundStyle(.secondary)
       if !inv.warnings.isEmpty { Text("⚠️ 경고 \(inv.warnings.count)건 — 창에서 확인").foregroundStyle(.secondary) }
     } else {

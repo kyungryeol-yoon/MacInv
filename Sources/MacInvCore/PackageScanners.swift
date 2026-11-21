@@ -142,4 +142,30 @@ public enum InventoryScanner {
     let sizes = await DiskUsage.measure(apps.map(\.path), runner: runner)
     return apps.map { var a = $0; a.bundleKB = sizes[a.path]; return a }
   }
+
+  /// 앱마다 데이터 경로를 모아 du 한 번씩(앱끼리는 최대 `width`개 동시). 수십 GB 캐시 트리는 오래 걸린다.
+  /// progress(끝낸 수, 전체)는 앱 하나 끝날 때마다.
+  public static func measureData(_ apps: [AppItem], runner: CommandRunner, home: String = NSHomeDirectory(), width: Int = 6,
+                                 progress: (@Sendable (Int, Int) -> Void)? = nil) async -> [AppItem] {
+    var result = apps
+    await withTaskGroup(of: (Int, Int, Bool, [String]).self) { group in
+      var next = 0, done = 0
+      func launch(_ i: Int) {
+        let a = apps[i]
+        group.addTask {
+          let paths = Paths.sizePaths(home: home, bundleID: a.bundleID, appName: a.name).map(\.path)
+          if paths.isEmpty { return (i, 0, false, []) }
+          let m = await DiskUsage.measureDetailed(paths, runner: runner)
+          return (i, m.sizes.values.reduce(0, +), m.partial, m.denied)
+        }
+      }
+      while next < min(width, apps.count) { launch(next); next += 1 }
+      for await (i, kb, partial, denied) in group {
+        result[i].dataKB = kb; result[i].dataPartial = partial; result[i].deniedPaths = denied
+        done += 1; progress?(done, apps.count)
+        if next < apps.count { launch(next); next += 1 }
+      }
+    }
+    return result
+  }
 }

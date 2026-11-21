@@ -87,7 +87,31 @@ public enum DiskUsage {
 
   /// 여러 경로를 du 한 번으로 잰다.
   public static func measure(_ paths: [String], runner: CommandRunner, timeout: Double = 300) async -> [String: Int] {
-    guard !paths.isEmpty, let r = try? await runner.run("du", ["-sk"] + paths, timeout: timeout, okCodes: [0, 1]) else { return [:] }
-    return parse(r.stdout)
+    await measureDetailed(paths, runner: runner, timeout: timeout).sizes
+  }
+
+  /// 크기 + 일부만 셌는지. 권한 오류가 난 하위 폴더는 빠진 채 합산되므로(du는 계속 진행) 그 사실을 함께 돌려준다.
+  /// Go판은 이걸 구분하지 못해 전체 디스크 접근이 없을 때 용량이 **조용히** 적게 잡혔다.
+  public static func measureDetailed(_ paths: [String], runner: CommandRunner, timeout: Double = 300) async -> (sizes: [String: Int], partial: Bool, denied: [String]) {
+    guard !paths.isEmpty, let r = try? await runner.run("du", ["-sk"] + paths, timeout: timeout, okCodes: [0, 1]) else { return ([:], !paths.isEmpty, []) }
+    return (parse(r.stdout), isPartial(stderr: r.stderr), deniedRoots(stderr: r.stderr, measured: paths))
+  }
+
+  /// 권한 오류가 난 경로를 **잰 경로 단위로** 묶는다(순수). 깊은 하위 경로 수백 개 대신
+  /// "어느 폴더를 못 읽었나"(~/Library/Containers/com.kakao.KakaoTalkMac)만 보여 주려고.
+  public static func deniedRoots(stderr: String, measured: [String]) -> [String] {
+    var out: [String] = []
+    for line in stderr.split(separator: "\n") where line.hasPrefix("du: ") && isPartial(stderr: String(line)) {
+      var p = String(line.dropFirst(4))
+      if let r = p.range(of: ": ", options: .backwards) { p = String(p[..<r.lowerBound]) }
+      let root = measured.filter { p == $0 || p.hasPrefix($0 + "/") }.max(by: { $0.count < $1.count }) ?? p
+      if !out.contains(root) { out.append(root) }
+    }
+    return out
+  }
+
+  /// du의 stderr에 권한 오류가 있으면 일부만 센 것(순수).
+  public static func isPartial(stderr: String) -> Bool {
+    stderr.contains("Operation not permitted") || stderr.contains("Permission denied")
   }
 }

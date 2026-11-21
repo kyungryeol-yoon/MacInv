@@ -59,6 +59,11 @@ public struct CommandRunner: Sendable {
     p.standardOutput = out
     p.standardError = err
 
+    // 종료는 terminationHandler로 받는다(run() 전에 걸어야 놓치지 않는다).
+    // waitUntilExit()는 쓰지 않는다 — 프로세스를 시작한 스레드의 런루프로 종료를 받는데, await 뒤엔 다른 스레드에서
+    // 이어질 수 있어 영영 못 받고 멈췄다(2026-11-21 앱 데이터 측정에서 실측).
+    let (exits, exitCont) = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+    p.terminationHandler = { proc in exitCont.yield(proc.terminationStatus); exitCont.finish() }
     try p.run()
     let timedOut = Flag()
     let watchdog = Task.detached {
@@ -69,12 +74,13 @@ public struct CommandRunner: Sendable {
     async let o = Self.readAll(out.fileHandleForReading)
     async let e = Self.readAll(err.fileHandleForReading)
     let (od, ed) = await (o, e)
-    p.waitUntilExit()
+    var status: Int32 = -1
+    for await s in exits { status = s }
     watchdog.cancel()
 
     let result = CommandResult(stdout: String(decoding: od, as: UTF8.self),
                                stderr: String(decoding: ed, as: UTF8.self),
-                               exitCode: p.terminationStatus)
+                               exitCode: status)
     if timedOut.value { throw CommandError.timedOut(command: label, seconds: timeout) }
     if okCodes.contains(result.exitCode) { return result }
     if !strict, !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return result }
@@ -82,8 +88,11 @@ public struct CommandRunner: Sendable {
     throw CommandError.failed(command: label, exitCode: result.exitCode, detail: String(detail.prefix(500)))
   }
 
+  /// 블로킹 읽기는 GCD 스레드에서 — Swift 동시성 스레드 풀(코어 수만큼)을 막으면 동시 실행이 많을 때 전체가 멈춘다.
   private static func readAll(_ h: FileHandle) async -> Data {
-    await Task.detached { h.readDataToEndOfFile() }.value
+    await withCheckedContinuation { c in
+      DispatchQueue.global(qos: .utility).async { c.resume(returning: h.readDataToEndOfFile()) }
+    }
   }
 }
 

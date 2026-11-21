@@ -83,6 +83,23 @@ struct CommandRunnerTests {
     #expect(r.stdout.count == 400_000)
   }
 
+  @Test func manyConcurrentRunsDoNotHang() async throws {
+    // 회귀: 동시 실행이 스레드 풀보다 많으면 블로킹 읽기·waitUntilExit 때문에 멈췄다
+    let start = Date()
+    let codes = try await withThrowingTaskGroup(of: Int32.self) { g in
+      for i in 0..<40 { g.addTask { try await runner.run("sh", ["-c", "sleep 0.2; echo \(i); echo err >&2"]).exitCode } }
+      return try await g.reduce(into: [Int32]()) { $0.append($1) }
+    }
+    #expect(codes.count == 40 && codes.allSatisfy { $0 == 0 })
+    #expect(Date().timeIntervalSince(start) < 20)
+  }
+
+  @Test func exitCodeAfterSuspension() async throws {
+    // run() 뒤 await로 다른 스레드에서 이어져도 종료 코드를 받는다
+    let r = try await runner.run("sh", ["-c", "sleep 0.3; echo x; exit 4"], okCodes: [4])
+    #expect(r.exitCode == 4 && r.stdout == "x\n")
+  }
+
   @Test func childGetsSearchPath() async throws {
     let r = try await CommandRunner(searchPath: ["/opt/x/bin", "/bin", "/usr/bin"]).run("sh", ["-c", "printf %s \"$PATH\""])
     #expect(r.stdout == "/opt/x/bin:/bin:/usr/bin")

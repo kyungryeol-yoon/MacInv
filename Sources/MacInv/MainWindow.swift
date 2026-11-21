@@ -77,7 +77,7 @@ struct MainWindow: View {
   private var subtitle: String {
     guard let inv = model.inventory else { return "" }
     var s = "스캔 \(inv.scannedAt.formatted(date: .omitted, time: .shortened))"
-    if model.measuring { s += " · 용량 재는 중…" }
+    if let m = model.measuringText { s += " · " + m }
     if model.fullDiskAccess == .denied { s += " · 전체 디스크 접근 꺼짐" }
     return s
   }
@@ -106,7 +106,23 @@ struct MainWindow: View {
 /// KB → "1.2 GB"
 func sizeText(_ kb: Int?) -> String {
   guard let kb else { return "—" }
-  return ByteCountFormatter.string(fromByteCount: Int64(kb) * 1024, countStyle: .file)
+  let f = ByteCountFormatter()
+  f.countStyle = .file
+  f.allowsNonnumericFormatting = false   // "Zero KB" 대신 "0 KB"
+  return f.string(fromByteCount: Int64(kb) * 1024)
+}
+
+/// 일부만 측정된 앱의 설명(마우스를 올리면 보임).
+func partialHelp(_ a: AppItem) -> String {
+  let home = NSHomeDirectory()
+  var s = "⚠️ 일부만 측정 — 전체 디스크 접근 권한이 없어 이 앱의 데이터 폴더 일부를 읽지 못했습니다. 실제 용량은 이보다 큽니다."
+  if !a.deniedPaths.isEmpty {
+    s += "\n\n읽지 못한 곳:"
+    for p in a.deniedPaths.prefix(6) { s += "\n• " + (p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p) }
+    if a.deniedPaths.count > 6 { s += "\n• 외 \(a.deniedPaths.count - 6)곳" }
+  }
+  s += "\n\n정확히 재려면: 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한에서 MacInv를 켜고 MacInv를 다시 시작하세요."
+  return s
 }
 
 struct AppsTable: View {
@@ -126,8 +142,27 @@ struct AppsTable: View {
         .width(min: 60, ideal: 90)
       TableColumn("출처", value: \.origin.label) { a in Text(a.origin.label) }
         .width(min: 90, ideal: 130)
-      TableColumn("번들 용량", value: \.bundleKB.orZero) { a in Text(sizeText(a.bundleKB)).monospacedDigit() }
-        .width(min: 70, ideal: 90)
+      TableColumn("합계", value: \.totalKB.orZero) { a in
+        HStack(spacing: 3) {
+          Text(sizeText(a.totalKB)).monospacedDigit()
+          if a.dataPartial { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).imageScale(.small) }
+          Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .help(a.dataPartial ? partialHelp(a) : "번들 \(sizeText(a.bundleKB)) + 데이터 \(sizeText(a.dataKB))")
+      }
+      .width(min: 80, ideal: 95)
+      TableColumn("번들", value: \.bundleKB.orZero) { a in Text(sizeText(a.bundleKB)).monospacedDigit().foregroundStyle(.secondary) }
+        .width(min: 60, ideal: 75)
+      TableColumn("데이터", value: \.dataKB.orZero) { a in
+        HStack {
+          Text(a.dataPartial ? "\(sizeText(a.dataKB)) 이상" : sizeText(a.dataKB)).monospacedDigit().foregroundStyle(.secondary)
+          Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .help(a.dataPartial ? partialHelp(a) : "앱 번들 밖(~/Library 등)에 쌓인 데이터·캐시")
+      }
+      .width(min: 70, ideal: 95)
       TableColumn("위치") { a in Text((a.path as NSString).deletingLastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
         .width(min: 120, ideal: 200)
       TableColumn("번들 ID") { a in Text(a.bundleID ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }

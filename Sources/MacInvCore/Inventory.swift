@@ -42,6 +42,14 @@ public struct AppItem: Sendable, Identifiable, Hashable {
   public var origin: AppOrigin
   /// .app 번들 용량(KB). 아직 안 쟀으면 nil
   public var bundleKB: Int?
+  /// 번들 밖 데이터(~/Library 등) 용량(KB) — 측정 전용 규칙(Paths.sizePaths). 데이터가 없으면 0
+  public var dataKB: Int?
+  /// 권한(전체 디스크 접근)이 없어 데이터 일부를 못 셈 — 실제보다 적다
+  public var dataPartial = false
+  /// 권한이 없어 못 읽은 폴더(잰 경로 단위)
+  public var deniedPaths: [String] = []
+  /// 번들 + 데이터. 번들은 앱을 지워야 줄고, 데이터는 정리로 줄일 여지가 있다
+  public var totalKB: Int? { bundleKB == nil && dataKB == nil ? nil : (bundleKB ?? 0) + (dataKB ?? 0) }
 
   public init(name: String, path: String, bundleID: String?, version: String?, dateAdded: Date?,
               origin: AppOrigin = .other, bundleKB: Int? = nil) {
