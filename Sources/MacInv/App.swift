@@ -38,6 +38,9 @@ final class AppModel: ObservableObject {
   @Published var outdated: [OutdatedItem]?
   @Published var outdatedWarnings: [String] = []
   @Published var checkingUpdates = false
+  /// 런타임 이름 → 지원 종료·최신 버전(조회 실패면 비어 있음 — 에러가 아니다)
+  @Published var runtimeEOL: [String: RuntimeEOL] = [:]
+  @Published var hasMise = false
   /// 메뉴에서 누른 항목으로 창의 분류를 바꾸라는 요청
   @Published var requestedSection: MainWindow.Section?
   @Published var scanning = false
@@ -98,6 +101,15 @@ final class AppModel: ObservableObject {
       }
       let inv = await InventoryScanner.scan(runner: r)
       inventory = inv; scanning = false
+      hasMise = r.resolve("mise") != nil
+      // 런타임 EOL: 7일 캐시, 실패·오프라인이면 조용히 생략
+      Task {
+        let installed = inv.runtimes.filter(\.installed)
+        let cycles = await EOL.cycles(for: installed.map(\.name))
+        var m: [String: RuntimeEOL] = [:]
+        for rt in installed { if let c = cycles[rt.name], let e = EOL.evaluate(version: rt.version, cycles: c) { m[rt.name] = e } }
+        runtimeEOL = m
+      }
       // 번들(du 한 번) → 데이터(앱마다, 앱 하나 끝날 때마다 진행률). 목록은 먼저 보여 준다.
       measuring = true
       let sized = await InventoryScanner.measureBundles(inv.apps, runner: r)

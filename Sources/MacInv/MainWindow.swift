@@ -62,7 +62,8 @@ struct MainWindow: View {
           case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name })
           case .casks: CasksTable(items: filtered(model.inventory!.casks) { $0.token + " " + $0.appNames.joined(separator: " ") })
           case .packages: PackagesTable(items: filtered(model.inventory!.packages) { $0.name })
-          case .runtimes: RuntimesView(runtimes: filtered(model.inventory!.runtimes) { $0.name }, managers: model.inventory!.versionManagers)
+          case .runtimes: RuntimesView(runtimes: filtered(model.inventory!.runtimes) { $0.name }, managers: model.inventory!.versionManagers,
+                                       eol: model.runtimeEOL, hasMise: model.hasMise)
           case .background: BackgroundTable(items: filtered(model.inventory!.background) { ($0.label ?? "") + " " + $0.file + " " + $0.owner.label })
           case .environment: EnvironmentView()
           }
@@ -240,6 +241,8 @@ struct EnvironmentView: View {
 struct RuntimesView: View {
   let runtimes: [Runtime]
   let managers: [VersionManagerInfo]
+  let eol: [String: RuntimeEOL]
+  let hasMise: Bool
   var body: some View {
     VSplitView {
       Table(runtimes) {
@@ -251,6 +254,10 @@ struct RuntimesView: View {
           if let a = r.active { Text(a.manager.label + (a.package.map { " \($0)" } ?? "")) } else { Text("—").foregroundStyle(.secondary) }
         }
         .width(min: 80, ideal: 110)
+        TableColumn("지원") { r in support(r) }
+          .width(min: 110, ideal: 150)
+        TableColumn("업데이트") { r in update(r) }
+          .width(min: 120, ideal: 170)
         TableColumn("쓰이는 경로") { r in
           HStack(spacing: 4) {
             if r.conflict { InfoBadge(text: conflictHelp(r)) }
@@ -268,6 +275,52 @@ struct RuntimesView: View {
         .frame(minHeight: 120)
       }
     }
+  }
+
+  @ViewBuilder private func support(_ r: Runtime) -> some View {
+    if let e = eol[r.name] {
+      switch e.status {
+      case .passed: Text("EOL 지남" + (e.eolDate.map { " \($0)" } ?? "")).foregroundStyle(.red)
+      case .soon:
+        Text(e.eolDate.flatMap { EOL.monthsUntil($0) }.map { "\($0)개월 뒤 종료" } ?? "곧 종료").foregroundStyle(.orange)
+      case .supported, .rolling: Text("지원 중").foregroundStyle(.secondary)
+      case .unknown: Text("—").foregroundStyle(.secondary)
+      }
+    } else {
+      Text(r.installed && EOL.products[r.name] != nil ? "—" : "").foregroundStyle(.secondary)
+    }
+  }
+
+  @ViewBuilder private func update(_ r: Runtime) -> some View {
+    if let e = eol[r.name] {
+      HStack(spacing: 4) {
+        switch e.update {
+        case .current: Text("현재").foregroundStyle(.secondary)
+        case .patch: Text("안전한 패치 \(e.latestVersion)")
+        case .major:
+          // go/rust는 1.x 안에서 하위 호환을 정책으로 보장 — 업데이트 목록과 같은 판정으로 경고색을 뺀다
+          if Updates.runtimeMajorJump(name: r.name, current: r.version ?? "", latest: e.latestCycle) {
+            Text("메이저 최신은 \(e.latestCycle)").foregroundStyle(.orange)
+          } else {
+            Text("최신 사이클 \(e.latestCycle) (하위 호환)").foregroundStyle(.secondary)
+          }
+        case .unknown: Text("—").foregroundStyle(.secondary)
+        }
+        if e.update != .current, let a = r.active,
+           let cmd = EOL.suggestCommand(runtime: r.name, manager: a.manager, latestCycle: e.latestCycle, hasMise: hasMise) {
+          InfoBadge(systemImage: "terminal", color: .secondary, text: commandHelp(r, e, cmd))
+        }
+      }
+    }
+  }
+
+  private func commandHelp(_ r: Runtime, _ e: RuntimeEOL, _ cmd: String) -> String {
+    var s = e.update == .major
+      ? "\(r.name) \(r.version ?? "")은 \(e.cycle) 사이클입니다. 최신 사이클은 \(e.latestCycle)입니다.\n메이저를 올리면 이 버전에 맞춰 둔 프로젝트가 깨질 수 있어 MacInv가 대신 실행하지 않습니다."
+      : "\(r.name) \(r.version ?? "") → \(e.latestVersion)(같은 \(e.cycle) 사이클 안의 패치)."
+    if e.update == .major, e.latestVersion != (r.version ?? "") { s += "\n같은 사이클의 최신 패치는 \(e.latestVersion)입니다." }
+    s += "\n\n직접 실행할 명령:\n\(cmd)"
+    return s
   }
 
   private func conflictHelp(_ r: Runtime) -> String {

@@ -31,7 +31,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - `Sources/MacInvCore/` — 로직(화면 없음, 테스트 대상). `Command.swift`(실행기: 타임아웃, 미설치=`notFound`, 읽기는 stdout 있으면 성공·`strict`는 종료 코드로만), `SearchPath.swift`(GUI 앱 PATH = 로그인 셸 `-ilc`에서 표식으로 받아온 PATH → 알려진 위치), `Permissions.swift`(전체 디스크 접근 — 보호 경로를 실제로 열어 판정, 안내 판정 `notice`는 순수 함수), `SelfIdentity.swift`(자기 자신 판정: 번들 ID·번들 경로·`/Applications/MacInv.app`·데이터 경로·cask `macinv`)
 - `Sources/MacInv/` — 메뉴 막대 화면(SwiftUI)
 - `Tests/MacInvCoreTests/`
-- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 다음 3 업데이트 대기 → 4 디스크 → 5 정리 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
+- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 다음 4 디스크 → 5 정리 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
 - 화면: 메뉴 막대는 요약·바로가기(창 열기·다시 스캔·권한 안내 — 단계마다 "손댈 게 있나"를 늘려 간다), 목록은 별도 창(왼쪽 분류 + 표)
 - `Paths.swift`는 측정(`sizePaths`)과 삭제 계획(`leftovers`, 5단계)이 **같이 쓰는 한 벌**. glob을 쓰지 않고 폴더 목록을 문자열로 비교(이름의 `[`·`*`·`?`가 패턴이 될 수 없음). 벤더 표는 `Vendors.swift`의 JSON 문자열(SwiftPM 리소스 번들은 .app 서명과 안 맞음)
 - **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행
