@@ -3,21 +3,27 @@ import MacInvCore
 
 @main
 struct MacInvApp: App {
-  @StateObject private var env = Environment()
+  @StateObject private var model = AppModel()
 
   var body: some Scene {
     MenuBarExtra {
-      MenuContent().environmentObject(env)
+      MenuContent().environmentObject(model)
     } label: {
       Image(systemName: "checklist")   // 메뉴 막대 아이콘(2026-11-21 정함) — 앱 아이콘의 "목록 + 줄 끝 상태"와 같은 모양
     }
+
+    Window("MacInv", id: "main") {
+      MainWindow().environmentObject(model)
+    }
+    .defaultSize(width: 980, height: 640)
+    .defaultLaunchBehavior(.suppressed)   // 켤 때 창은 안 띄움
   }
 }
 
-/// 앱이 돌아가는 환경: 명령을 찾을 PATH, 찾은 도구, 권한.
+/// 앱 전체 상태: 명령을 찾을 PATH, 권한, 인벤토리.
 @MainActor
-final class Environment: ObservableObject {
-  /// 인벤토리에 쓰는 도구(1단계 확인용 — 소스가 생기면 각 소스가 자기 도구를 찾는다)
+final class AppModel: ObservableObject {
+  /// 환경 탭에 보여 줄 도구
   static let tools = ["brew", "npm", "node", "pipx", "cargo", "go", "mas", "python3"]
   /// 전체 디스크 접근이 한 번이라도 허용된 적 있는지 — 풀렸을 때 "업데이트 후 풀림"으로 안내하려고
   private static let grantedOnceKey = "fullDiskAccessGrantedOnce"
@@ -26,7 +32,9 @@ final class Environment: ObservableObject {
   @Published var pathFromShell = false
   @Published var found: [String: String] = [:]
   @Published var fullDiskAccess: Permissions.Access = .unknown
-  @Published var loading = true
+  @Published var inventory: Inventory?
+  @Published var scanning = false
+  @Published var measuring = false
   private var observers: [NSObjectProtocol] = []
 
   var notice: Permissions.Notice {
@@ -34,7 +42,8 @@ final class Environment: ObservableObject {
   }
 
   init() {
-    refresh()
+    checkPermissions()
+    scan()
     // 메뉴를 열 때마다 권한을 다시 본다(설정에서 켜고 돌아오면 바로 반영 — 단 실제 적용은 다시 시작 후)
     observers.append(NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.checkPermissions() }
@@ -46,15 +55,22 @@ final class Environment: ObservableObject {
     if fullDiskAccess == .granted { UserDefaults.standard.set(true, forKey: Self.grantedOnceKey) }
   }
 
-  func refresh() {
-    loading = true
+  /// PATH 확인 → 인벤토리 수집 → (목록을 먼저 보여 주고) 앱 번들 용량 채우기.
+  func scan() {
+    guard !scanning else { return }
+    scanning = true
     checkPermissions()
     Task {
       let (dirs, fromShell) = await SearchPath.resolve()
       let r = CommandRunner(searchPath: dirs)
       var f: [String: String] = [:]
       for t in Self.tools { if let p = r.resolve(t) { f[t] = p } }
-      runner = r; pathFromShell = fromShell; found = f; loading = false
+      runner = r; pathFromShell = fromShell; found = f
+      let inv = await InventoryScanner.scan(runner: r)
+      inventory = inv; scanning = false
+      measuring = true
+      let sized = await InventoryScanner.measureBundles(inv.apps, runner: r)
+      inventory?.apps = sized; measuring = false
     }
   }
 
@@ -69,32 +85,39 @@ final class Environment: ObservableObject {
 }
 
 struct MenuContent: View {
-  @EnvironmentObject private var env: Environment
+  @EnvironmentObject private var model: AppModel
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    Section("권한") {
-      switch env.fullDiskAccess {
-      case .granted: Text("전체 디스크 접근: 허용됨")
-      case .unknown: Text("전체 디스크 접근: 확인 못 함")
-      case .denied:
-        if env.notice == .lostAfterUpdate {
-          Text("전체 디스크 접근이 풀렸습니다(업데이트 후 생길 수 있음)")
-          Text("시스템 설정 목록에서 MacInv를 −로 지운 뒤 다시 추가하세요").foregroundStyle(.secondary)
-        } else {
-          Text("전체 디스크 접근: 꺼져 있음 — 다른 앱 데이터는 일부만 측정")
-        }
-        Button("시스템 설정 열기…") { NSWorkspace.shared.open(Permissions.fullDiskAccessSettingsURL) }
-        Text("켠 뒤에는 MacInv를 다시 시작해야 적용됩니다").foregroundStyle(.secondary)
-        Button("MacInv 다시 시작") { env.relaunch() }
-      }
+    if let inv = model.inventory {
+      Text("앱 \(inv.apps.count)개 · brew \(inv.formulae.count + inv.casks.count)개 · 패키지 \(inv.packages.count)개")
+      Text("스캔 \(inv.scannedAt.formatted(date: .omitted, time: .shortened))\(model.measuring ? " · 용량 재는 중…" : "")")
+        .foregroundStyle(.secondary)
+      if !inv.warnings.isEmpty { Text("⚠️ 경고 \(inv.warnings.count)건 — 창에서 확인").foregroundStyle(.secondary) }
+    } else {
+      Text("스캔 중…")
     }
-    Section(env.loading ? "도구 찾는 중…" : (env.pathFromShell ? "도구 (로그인 셸 PATH)" : "도구 (기본 경로만 — 셸 PATH를 못 읽음)")) {
-      ForEach(Environment.tools, id: \.self) { t in
-        if let p = env.found[t] { Text("\(t)  \(p)") } else if !env.loading { Text("\(t)  없음").foregroundStyle(.secondary) }
+    Button("MacInv 열기") {
+      openWindow(id: "main")
+      NSApplication.shared.activate()
+    }
+    .keyboardShortcut("o")
+    Button(model.scanning ? "스캔 중…" : "다시 스캔") { model.scan() }
+      .disabled(model.scanning)
+
+    if model.fullDiskAccess == .denied {
+      Divider()
+      if model.notice == .lostAfterUpdate {
+        Text("전체 디스크 접근이 풀렸습니다(업데이트 후 생길 수 있음)")
+        Text("시스템 설정 목록에서 MacInv를 −로 지운 뒤 다시 추가하세요").foregroundStyle(.secondary)
+      } else {
+        Text("전체 디스크 접근: 꺼져 있음 — 다른 앱 데이터는 일부만 측정")
       }
+      Button("시스템 설정 열기…") { NSWorkspace.shared.open(Permissions.fullDiskAccessSettingsURL) }
+      Text("켠 뒤에는 MacInv를 다시 시작해야 적용됩니다").foregroundStyle(.secondary)
+      Button("MacInv 다시 시작") { model.relaunch() }
     }
     Divider()
-    Button("다시 확인") { env.refresh() }
     Button("MacInv 종료") { NSApplication.shared.terminate(nil) }
       .keyboardShortcut("q")
   }
