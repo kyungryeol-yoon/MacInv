@@ -272,11 +272,14 @@ public enum Planner {
 
   /// 담긴 경로를 실제로 잰다(계획에 크기를 채운다).
   public static func measure(_ plan: Plan, runner: CommandRunner) async -> Plan {
-    let all = plan.targets.flatMap { $0.trash + $0.needsAdmin + $0.needsPermission }.map(\.path)
+    // 이미 잰 것(디스크 화면에서 온 경로)은 다시 재지 않는다 — 수십 GB 캐시 트리는 오래 걸린다
+    let every: [PlanPath] = plan.targets.flatMap { (t: PlanTarget) -> [PlanPath] in t.trash + t.needsAdmin + t.needsPermission }
+    let all: [String] = every.filter { $0.sizeKB == nil }.map(\.path)
+    guard !all.isEmpty else { return plan }
     let sizes = await DiskUsage.measure(all, runner: runner)
     var p = plan
     for i in p.targets.indices {
-      for j in p.targets[i].trash.indices { p.targets[i].trash[j].sizeKB = sizes[p.targets[i].trash[j].path] }
+      for j in p.targets[i].trash.indices { p.targets[i].trash[j].sizeKB = p.targets[i].trash[j].sizeKB ?? sizes[p.targets[i].trash[j].path] }
       for j in p.targets[i].needsAdmin.indices { p.targets[i].needsAdmin[j].sizeKB = sizes[p.targets[i].needsAdmin[j].path] }
       for j in p.targets[i].needsPermission.indices { p.targets[i].needsPermission[j].sizeKB = sizes[p.targets[i].needsPermission[j].path] }
     }

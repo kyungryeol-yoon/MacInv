@@ -73,6 +73,8 @@ public struct BrewCask: Sendable, Identifiable, Hashable {
   public let version: String?
   /// 이 cask가 설치한 .app 이름들(예: "DiSwitch.app")
   public let appNames: [String]
+  /// pkg 설치기를 쓴다 — 업그레이드·삭제에 sudo 암호가 필요해서 GUI에서는 입력할 곳이 없어 멈춘다
+  public var usesInstaller = false
 }
 
 public enum PackageManager: String, Sendable, CaseIterable {

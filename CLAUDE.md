@@ -69,11 +69,14 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - **벤더 폴더**(Google·Microsoft·Adobe·JetBrains…): 같은 벤더의 다른 앱이 설치돼 있으면 `<Vendor>/<App>`만 [확신낮음]으로, 공유 컴포넌트(Keystone 등)는 "타 앱 사용 중"으로 보존. 그 벤더 앱이 마지막이면 폴더 전체+고아 공유 컴포넌트를 [확신중간]으로 (`clean/vendor.go`, `vendors.json`)
 - 잔여물은 Bundle ID 접두사로 헬퍼·파생 파일(`.ShipIt`, `.helper.plist`)·Group Containers·Cookies·ByHost·`/Library`까지 찾는다. 부모에 이미 포함된 경로는 뺀다 (`paths.gatherLeftovers`)
 - **brew**: 네이티브 `brew uninstall`, `brew uses --installed`로 역의존성 경고, 끝나면 `brew autoremove` 제안. npm 전역·pipx·cargo도 네이티브 uninstall, `~/go/bin` 실행 파일은 휴지통 (`clean/packages.go`)
+- **sudo가 필요한 cask**(artifacts에 `pkg`·`installer`)는 「전부 업데이트」에서 빼고 명령만 보여 준다(GUI엔 암호 입력할 곳이 없어 멈춤) — `BrewCask.usesInstaller`
+- **고아 캐시**(쓰는 도구가 없음)는 그 도구의 정리 명령이 못 돌므로 폴더를 휴지통으로. 바로가기(심볼릭 링크) 경로는 휴지통에 넣지 않는다(링크만 옮겨지고 공간은 안 빔)
 - **명령은 인자 배열로 저장**(6-8): 문자열로 저장했다 다시 쪼개면 `--filter "until=24h"`가 깨진다. 표시용 한 줄은 렌더할 때만 만들고 다시 파싱하지 않는다
 - **실행(변경) 명령은 엄격 판정**: 종료 코드로 성공을 본다(부분 실패를 성공으로 오인 금지). 실패 메시지에 stderr 포함. 업그레이드는 타임아웃 30분, 삭제는 5분
 
 ### 고아 잔여물 (지운 앱이 `~/Library`에 남긴 것)
 - Bundle ID 형태(점 2개 이상)만 대상. `/Library`는 안 본다(다른 사용자·서비스 소유 가능). 전부 [확신중간]
+- **도구·같은 개발자도 보존**(2026-11-21 Swift판 실측 오탐): ID 마디 하나가 설치된 포뮬러·패키지·런타임 이름이면 보존(`org.swift.swiftpm`←swift, `sh.brew.ollama`←brew services), 설치 앱과 같은 개발자(앞 두 마디, `io.github`류는 세 마디)면 보존(`com.logi.cp-dev-mgr`). 대소문자 무시. 파생 ID는 상위 고아 한 줄로 묶는다 (`Planner.isOrphan`)
 - **보존**(실기 오탐 — Apple Podcasts 그룹·단축어·Sparkle): `com.apple.`이 **어디든 포함**, `systemgroup.`, 팀ID 접두사 `^[A-Z0-9]{10}\.`, `is.workflow.`, `org.sparkle-project.`, 설치 앱 ID와 **양방향** 접두사 관계, 벤더 공유 (`clean.classifyOrphan`/`orphanProtected`)
 
 ### 용량 측정

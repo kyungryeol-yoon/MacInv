@@ -16,9 +16,14 @@ public enum Parse {
     }
     let casks: [BrewCask] = (root["casks"] as? [[String: Any]] ?? []).compactMap { c in
       guard let token = c["token"] as? String else { return nil }
-      return BrewCask(token: token, version: c["installed"] as? String, appNames: caskApps(c["artifacts"]))
+      return BrewCask(token: token, version: c["installed"] as? String, appNames: caskApps(c["artifacts"]), usesInstaller: caskUsesInstaller(c["artifacts"]))
     }
     return (formulae.sorted { $0.name < $1.name }, casks.sorted { $0.token < $1.token })
+  }
+
+  /// artifacts에 `pkg`·`installer`가 있으면 sudo가 필요한 cask
+  static func caskUsesInstaller(_ artifacts: Any?) -> Bool {
+    (artifacts as? [Any] ?? []).contains { ($0 as? [String: Any]).map { $0["pkg"] != nil || $0["installer"] != nil } ?? false }
   }
 
   static func caskApps(_ artifacts: Any?) -> [String] {

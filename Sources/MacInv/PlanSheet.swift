@@ -12,10 +12,10 @@ struct PlanSheet: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 10) {
-        Image(systemName: "list.bullet.clipboard").font(.title2).foregroundStyle(.secondary)
+        Image(systemName: plan.verb == "업데이트" ? "arrow.up.circle" : "trash").font(.title2).foregroundStyle(.secondary)
         VStack(alignment: .leading, spacing: 2) {
           Text(plan.title).font(.title3.weight(.semibold))
-          Text("계획만 보여 줍니다 — 아직 아무것도 지우지 않습니다").font(.caption).foregroundStyle(.secondary)
+          Text("실행하기 전에 무엇을 하는지 확인하세요 — 아직 아무것도 \(plan.verb == "업데이트" ? "바꾸지" : "지우지") 않았습니다").font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
       }
@@ -26,6 +26,17 @@ struct PlanSheet: View {
           ForEach(plan.refusals, id: \.self) { Callout(symbol: "lock.fill", color: .secondary, text: $0) }
           ForEach(plan.warnings, id: \.self) { Callout(symbol: "exclamationmark.triangle.fill", color: .orange, text: $0) }
           ForEach(plan.targets) { TargetSection(target: $0, low: $low, measuring: shown.measuring) }
+          if !plan.held.isEmpty {
+            Group2(title: "이번에 빼 둔 것 \(plan.held.count)개 — 필요하면 직접 하세요") {
+              ForEach(plan.held) { h in
+                VStack(alignment: .leading, spacing: 2) {
+                  HStack(spacing: 6) { Image(systemName: "pause.circle").foregroundStyle(.secondary); Text(h.name).font(.callout.weight(.semibold)) }
+                  Text(h.reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                  if let c = h.command { Text(shellLine(c)).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+                }
+              }
+            }
+          }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -44,7 +55,7 @@ struct PlanSheet: View {
             HStack(spacing: 6) { ProgressView().controlSize(.small); Text("용량 재는 중…").foregroundStyle(.secondary) }
           } else if let kb = plan.reclaimKB(includeLow: low) {
             let all = plan.reclaimKB(includeLow: Set(plan.lowPaths)) ?? kb
-            Text("💾 이번 정리로 회수 예상 \(sizeText(kb))" + (all > kb ? "  (확신 낮음 모두 포함 시 \(sizeText(all)))" : "")).monospacedDigit()
+            Text("💾 회수 예상 \(sizeText(kb))" + (all > kb ? "  (확신 낮음 모두 포함 시 \(sizeText(all)))" : "")).monospacedDigit()
           }
           if plan.targets.contains(where: { !$0.trash.isEmpty }) {
             Text("휴지통으로 옮깁니다 — 휴지통을 비우기 전까지는 디스크가 실제로 비지 않습니다.").font(.caption).foregroundStyle(.secondary)
@@ -53,7 +64,7 @@ struct PlanSheet: View {
       }
       Spacer()
       Button("닫기") { dismiss() }.keyboardShortcut(.cancelAction)
-      Button("실행") {}.disabled(true).help("실행은 다음 단계(6단계)에서 연결합니다")
+      Button(plan.verb) {}.disabled(true).help("실행은 다음 단계(6단계)에서 연결합니다")
     }
   }
 }

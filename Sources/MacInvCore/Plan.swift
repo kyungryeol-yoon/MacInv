@@ -4,9 +4,13 @@ import Foundation
 /// 삭제는 rm이 아니라 휴지통(또는 네이티브 명령 — brew uninstall 등). 명령은 인자 배열로 담는다(문자열로 뒀다
 /// 다시 쪼개면 공백 든 인자가 깨진다 — Go판 6-8). 표시용 한 줄은 `shellLine`이 그릴 때만 만든다.
 public enum TargetKind: String, Sendable {
-  case app, brewCask, brewFormula, npm, pipx, cargo, goBin
+  case app, brewCask, brewFormula, npm, pipx, cargo, goBin, mas, orphan, disk, ollama
   public var label: String {
     switch self {
+    case .mas: return "App Store"
+    case .orphan: return "고아 잔여물"
+    case .disk: return "디스크 정리"
+    case .ollama: return "Ollama 모델"
     case .app: return "앱"
     case .brewCask: return "Homebrew 앱(cask)"
     case .brewFormula: return "Homebrew 포뮬러"
@@ -75,6 +79,8 @@ public struct Plan: Sendable {
   public var warnings: [String] = []
   /// 계획을 만들지 않은 이유(자기 자신·애플 앱 등). targets가 비어 있을 때 보여 준다
   public var refusals: [String] = []
+  /// 일부러 뺀 대상(런타임 메이저·sudo 필요 등) — 이유와 직접 실행할 명령을 보여 준다
+  public var held: [HeldItem] = []
   /// 승인 뒤 한 번 더 확인(GUI 앱 삭제·재다운로드 비싼 것)
   public var requireConfirm = false
   /// 휴지통 경로 밖에서 회수될 몫(네이티브 명령이 지우는 것)
@@ -100,6 +106,13 @@ public struct Plan: Sendable {
     for i in p.targets.indices { p.targets[i].trash.removeAll { $0.confidence == .low && !low.contains($0.path) } }
     return p
   }
+}
+
+public struct HeldItem: Sendable, Hashable, Identifiable {
+  public var id: String { name }
+  public let name: String
+  public let reason: String
+  public let command: [String]?
 }
 
 /// 표시용 셸 한 줄(실행에는 쓰지 않는다).

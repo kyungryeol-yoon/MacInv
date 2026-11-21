@@ -8,8 +8,8 @@ import MacInvCore
 struct FilterBar<F: Hashable>: View {
   let options: [(value: F, title: String, count: Int)]
   @Binding var selection: F
-  /// 있으면 오른쪽에 "삭제 계획 보기" (nil 안의 nil = 고른 줄 없음)
-  var plan: PlanButton? = nil
+  /// 오른쪽 계획 버튼들
+  var plans: [PlanButton] = []
   var body: some View {
     HStack {
       if !options.isEmpty {
@@ -21,7 +21,7 @@ struct FilterBar<F: Hashable>: View {
         .fixedSize()
       }
       Spacer()
-      if let plan { plan }
+      ForEach(plans.indices, id: \.self) { plans[$0] }
     }
     .padding(.horizontal, 12).padding(.vertical, 8)
   }
@@ -29,17 +29,20 @@ struct FilterBar<F: Hashable>: View {
 
 /// 고른 줄의 삭제 계획 보기(읽기 전용). 더블클릭·엔터에는 묶지 않는다 — 기본 동작이 삭제로 이어지면 안 된다.
 struct PlanButton: View {
+  var title = "삭제…"
+  var symbol = "trash"
+  var hint = "실행 전에 무엇을 지우고 무엇을 남기는지 확인 화면을 띄웁니다"
   let action: (() -> Void)?
   var body: some View {
-    Button { action?() } label: { Label("삭제 계획 보기…", systemImage: "list.bullet.clipboard") }
+    Button { action?() } label: { Label(title, systemImage: symbol) }
       .disabled(action == nil)
-      .help(action == nil ? "표에서 한 줄을 고르세요" : "무엇을 지우고 무엇을 남기는지 보여 줍니다 — 아직 지우지 않습니다")
+      .help(action == nil ? "표에서 고르세요" : hint)
   }
 }
 
 /// 표 줄 오른쪽 클릭 메뉴
-func planMenu(_ run: (() -> Void)?) -> some View {
-  Group { if let run { Button("삭제 계획 보기…", action: run) } }
+func planMenu(_ run: (() -> Void)?, title: String = "삭제…") -> some View {
+  Group { if let run { Button(title, action: run) } }
 }
 
 /// 🔒 — 지우지 않는 것.
@@ -77,7 +80,7 @@ struct AppsTable: View {
                           (.appStore, "App Store", apps.filter { kind($0) == .appStore }.count),
                           (.brew, "Homebrew", apps.filter { kind($0) == .brew }.count),
                           (.apple, "Apple(보호)", apps.filter { kind($0) == .apple }.count)], selection: $filter,
-                plan: PlanButton(action: planAction(selection)))
+                plans: [PlanButton(action: planAction(selection))])
       Table(apps.filter { filter == .all || kind($0) == filter }.sorted(using: order), selection: $selection, sortOrder: $order) {
         TableColumn("이름", value: \.name, comparator: .localizedStandard) { a in
           HStack(spacing: 8) {
@@ -151,7 +154,7 @@ struct FormulaeTable: View {
     VStack(spacing: 0) {
       FilterBar(options: [(.all, "전체", rows.count), (.onRequest, "직접 설치", rows.filter(\.f.onRequest).count),
                           (.dependency, "의존성", rows.filter { !$0.f.onRequest }.count), (.unused, "아무도 안 씀", unused.count)],
-                selection: $filter, plan: PlanButton(action: planAction(selection)))
+                selection: $filter, plans: [PlanButton(action: planAction(selection))])
       if filter == .unused {
         Label("의존성으로 깔렸는데 이제 이걸 쓰는 포뮬러가 없습니다 — brew autoremove 대상입니다.", systemImage: "info.circle")
           .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 6)
@@ -210,7 +213,7 @@ struct CasksTable: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      FilterBar(options: [(Int, String, Int)](), selection: $none, plan: PlanButton(action: planAction(selection)))
+      FilterBar(options: [(Int, String, Int)](), selection: $none, plans: [PlanButton(action: planAction(selection))])
       Table(items.sorted(using: order), selection: $selection, sortOrder: $order) {
         TableColumn("이름", value: \.token) { c in
           HStack(spacing: 4) {
@@ -249,7 +252,7 @@ struct PackagesTable: View {
       let present = PackageManager.allCases.filter { m in items.contains { $0.manager == m } }
       VStack(spacing: 0) {
         FilterBar(options: [(nil, "전체", items.count)] + present.map { m in (Optional(m), m.label, items.filter { $0.manager == m }.count) },
-                  selection: $filter, plan: PlanButton(action: planAction(selection)))
+                  selection: $filter, plans: [PlanButton(action: planAction(selection))])
         Table(items.filter { filter == nil || $0.manager == filter }.sorted(using: order), selection: $selection, sortOrder: $order) {
           TableColumn("이름", value: \.name)
           TableColumn("버전", value: \.versionText) { p in Text(p.versionText).foregroundStyle(.secondary) }
@@ -336,6 +339,14 @@ struct UpdatesView: View {
   enum Filter: Hashable { case all, normal, major, pinned }
   @State private var filter = Filter.all
   @State private var order = [KeyPathComparator(\OutdatedItem.kindRank), KeyPathComparator(\OutdatedItem.name)]
+  @State private var selection = Set<OutdatedItem.ID>()
+  @EnvironmentObject private var model: AppModel
+
+  private func planAction(_ ids: Set<OutdatedItem.ID>, everything: Bool = false) -> (() -> Void)? {
+    let chosen = everything ? (items ?? []) : (items ?? []).filter { ids.contains($0.id) }
+    guard !chosen.isEmpty else { return nil }
+    return { model.showPlan { Planner.upgrade(chosen, everything: everything, inventory: $0, env: $1) } }
+  }
 
   var body: some View {
     if let items {
@@ -345,18 +356,23 @@ struct UpdatesView: View {
         VStack(alignment: .leading, spacing: 0) {
           FilterBar(options: [(.all, "전체", items.count), (.normal, "일반", items.filter { $0.kindRank == 1 }.count),
                               (.major, "런타임 메이저", items.filter { $0.kindRank == 0 }.count),
-                              (.pinned, "고정", items.filter(\.pinned).count)], selection: $filter)
+                              (.pinned, "고정", items.filter(\.pinned).count)], selection: $filter,
+                    plans: [PlanButton(title: selection.isEmpty ? "선택한 것 업데이트…" : "선택한 \(selection.count)개 업데이트…", symbol: "checklist",
+                                       hint: "⌘-클릭으로 여러 개, ⇧-클릭으로 범위, ⌘A로 전부 고를 수 있습니다", action: planAction(selection)),
+                            PlanButton(title: "모두 업데이트…", symbol: "arrow.up.circle",
+                                       hint: "런타임 메이저·고정된 것·암호가 필요한 것은 빼고 업데이트합니다", action: planAction([], everything: true))])
           if items.contains(where: \.runtimeMajor) && (filter == .all || filter == .major) {
             Label("런타임 메이저 업그레이드는 프로젝트를 깨뜨릴 수 있어 \"전부 업데이트\"에서 뺍니다. 필요하면 하나씩 고르세요.", systemImage: "exclamationmark.triangle.fill")
               .foregroundStyle(.orange).font(.callout).padding(.horizontal, 12).padding(.bottom, 6)
           }
-          Table(items.filter(match).sorted(using: order), sortOrder: $order) {
+          Table(items.filter(match).sorted(using: order), selection: $selection, sortOrder: $order) {
             TableColumn("이름", value: \.name) { o in Text(o.name) }.width(min: 140, ideal: 200)
             TableColumn("출처", value: \.sourceText) { o in Text(o.sourceText).foregroundStyle(.secondary) }.width(min: 70, ideal: 90)
             TableColumn("현재", value: \.current) { o in Text(o.current).foregroundStyle(.secondary).monospacedDigit() }.width(min: 70, ideal: 100)
             TableColumn("최신", value: \.latest) { o in Text(o.latest).monospacedDigit() }.width(min: 70, ideal: 100)
             TableColumn("구분", value: \.kindRank) { o in kind(o) }
           }
+          .contextMenu(forSelectionType: OutdatedItem.ID.self) { ids in planMenu(planAction(ids), title: "업데이트…") }
         }
       }
     } else if checking {

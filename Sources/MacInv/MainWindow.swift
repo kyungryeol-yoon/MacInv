@@ -298,6 +298,14 @@ struct DiskView: View {
   let query: String
   @State private var order = [KeyPathComparator(\DiskEntry.sizeKB, order: .reverse)]
   @State private var tier: Tier? = nil
+  @State private var selection: DiskEntry.ID?
+  /// 재다운로드 비싼 것도 계획에 넣기(옵트인 — 정리 안 함(never)은 이걸로도 안 들어간다). 한 곳을 직접 고르면 그것이 옵트인
+  @State private var includeExpensive = false
+  @EnvironmentObject private var model: AppModel
+
+  private func diskPlan(_ r: DiskReport, only: Set<String>?) -> () -> Void {
+    { [includeExpensive] in model.showPlan { _, env in Planner.diskCleanup(r, only: only, includeExpensive: includeExpensive || only != nil, env: env) } }
+  }
 
   var body: some View {
     if let r = report {
@@ -308,8 +316,12 @@ struct DiskView: View {
         FilterBar(options: [(nil, "전체", r.entries.count)] + [Tier.safe, .artifact, .expensive].compactMap { t in
           let n = r.entries.filter { $0.location.tier == t }.count
           return n > 0 ? (Optional(t), t.label, n) : nil
-        }, selection: $tier)
-        Table(rows(r), sortOrder: $order) {
+        }, selection: $tier, plans: [
+          PlanButton(title: "선택한 곳 정리…", symbol: "checklist", action: selection.map { diskPlan(r, only: [$0]) }),
+          PlanButton(title: "정리…", symbol: "sparkles", action: diskPlan(r, only: nil)),
+          PlanButton(title: "고아 잔여물 정리…", symbol: "questionmark.folder", action: { model.showPlan { Planner.orphans(inventory: $0, env: $1) } }),
+        ])
+        Table(rows(r), selection: $selection, sortOrder: $order) {
           TableColumn("위치", value: \.location.name) { e in
             VStack(alignment: .leading, spacing: 2) {
               Text(e.location.name)
@@ -337,6 +349,7 @@ struct DiskView: View {
             }
           }
         }
+        .contextMenu(forSelectionType: DiskEntry.ID.self) { ids in planMenu(ids.first.map { diskPlan(r, only: [$0]) }, title: "정리…") }
         if let models = r.ollamaModels, !models.isEmpty { ollama(models, r).padding(12) }
       }
     } else {
@@ -392,9 +405,14 @@ struct DiskView: View {
         Spacer()
       }
       ForEach(models) { m in
-        HStack { Text(m.name).monospaced(); Spacer(); Text(sizeText(m.sizeKB)).monospacedDigit().foregroundStyle(.secondary) }.font(.callout)
+        HStack {
+          Text(m.name).monospaced(); Spacer(); Text(sizeText(m.sizeKB)).monospacedDigit().foregroundStyle(.secondary)
+          Button("삭제…") { model.showPlan { _, _ in Planner.ollama([m], externalVolume: link.flatMap(Disk.externalVolume)) } }
+            .controlSize(.small)
+        }
+        .font(.callout)
       }
-      Text("모델은 하나씩 고르게 됩니다(6단계) — 하나가 수 GB이고 다시 받기 비쌉니다.").font(.caption).foregroundStyle(.tertiary)
+      Text("모델은 하나씩 지웁니다 — 하나가 수 GB이고 다시 받기 비쌉니다.").font(.caption).foregroundStyle(.tertiary)
     }
     .cardBackground()
   }
@@ -428,6 +446,9 @@ struct DiskView: View {
         stat("디스크 여유", ByteCountFormatter.string(fromByteCount: free, countStyle: .file), "전체 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
       }
       Spacer()
+      Toggle("재다운로드 비싼 것도 정리", isOn: $includeExpensive)
+        .toggleStyle(.checkbox).font(.callout)
+        .help("모델·이미지처럼 다시 받기 비싼 것. 넣으면 실행 전에 한 번 더 확인합니다. 소스·사용자 데이터(정리 안 함)는 이걸로도 들어가지 않습니다")
     }
   }
 
