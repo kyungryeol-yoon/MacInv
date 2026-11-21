@@ -105,3 +105,27 @@ struct AppScannerTests {
     #expect(DiskUsage.parse(out) == ["/Applications/A.app": 123, "/Applications/B C.app": 45678])
   }
 }
+
+@Suite("BrewGraph")
+struct BrewGraphTests {
+  let fs = [
+    BrewFormula(name: "ffmpeg", version: "8", onRequest: true, dependencies: ["brotli", "x264"]),
+    BrewFormula(name: "freetype", version: "2", onRequest: false, dependencies: ["brotli"]),
+    BrewFormula(name: "brotli", version: "1", onRequest: false, dependencies: []),
+    BrewFormula(name: "x264", version: "r", onRequest: false, dependencies: []),
+    BrewFormula(name: "leftover", version: "1", onRequest: false, dependencies: []),   // 쓰던 게 지워짐
+    BrewFormula(name: "hugo", version: "0.1", onRequest: true, dependencies: []),
+  ]
+
+  @Test func dependents() {
+    let d = BrewGraph.dependents(fs)
+    #expect(d["brotli"] == ["ffmpeg", "freetype"])
+    #expect(d["x264"] == ["ffmpeg"])
+    #expect(d["hugo"] == nil)
+  }
+
+  @Test func unusedIsAutoremoveCandidates() {
+    // freetype는 의존성으로 깔렸지만 이제 아무도 안 씀 → 대상. 직접 설치(hugo)는 대상 아님
+    #expect(BrewGraph.unused(fs) == ["freetype", "leftover"])
+  }
+}

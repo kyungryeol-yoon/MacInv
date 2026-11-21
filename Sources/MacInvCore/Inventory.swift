@@ -95,3 +95,19 @@ public struct PackageItem: Sendable, Identifiable, Hashable {
   public let manager: PackageManager
   public let path: String?
 }
+
+/// Homebrew 의존 관계(순수).
+public enum BrewGraph {
+  /// 포뮬러 → 그것을 의존성으로 쓰는 설치된 포뮬러들(이름순). 지우면 이것들이 깨진다.
+  public static func dependents(_ formulae: [BrewFormula]) -> [String: [String]] {
+    var out: [String: [String]] = [:]
+    for f in formulae { for d in f.dependencies { out[d, default: []].append(f.name) } }
+    return out.mapValues { $0.sorted() }
+  }
+
+  /// 의존성으로 깔렸는데 이제 아무것도 안 쓰는 것 — `brew autoremove` 대상.
+  public static func unused(_ formulae: [BrewFormula]) -> [String] {
+    let deps = dependents(formulae)
+    return formulae.filter { !$0.onRequest && (deps[$0.name] ?? []).isEmpty }.map(\.name).sorted()
+  }
+}

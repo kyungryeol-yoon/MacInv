@@ -39,6 +39,12 @@ public struct DiskEntry: Sendable, Identifiable, Hashable {
   public var breakdown: [(name: String, kb: Int)] = []
   public var partial = false
   public var deniedPaths: [String] = []
+  /// 위치가 다른 곳으로 가는 바로가기(심볼릭 링크) → 실제 위치. du는 링크를 따라가지 않아 0으로 잡힌다 —
+  /// 내장 디스크 공간을 안 쓴다는 뜻이라 값은 맞지만, 그 사실을 보여 줘야 한다(2026-11-21 ~/.ollama/models → 외장 SSD 실측)
+  public var linkedTo: [String: String] = [:]
+  /// 실행 중인 앱의 캐시 경로 → 앱(폴더) 이름 — 정리에서 뺀다
+  public var blockedByRunning: [String: String] = [:]
+  public var blockedKB: Int { blockedByRunning.keys.reduce(0) { $0 + (pathSizes[$1] ?? 0) } }
   public static func == (a: DiskEntry, b: DiskEntry) -> Bool { a.id == b.id && a.pathSizes == b.pathSizes && a.orphan == b.orphan }
   public func hash(into h: inout Hasher) { h.combine(id) }
 }
@@ -46,8 +52,20 @@ public struct DiskEntry: Sendable, Identifiable, Hashable {
 public struct DiskReport: Sendable {
   public var entries: [DiskEntry] = []
   public var totalKB: Int { entries.reduce(0) { $0 + $1.sizeKB } }
-  /// 기본 정리 대상(safe + artifact)
-  public var reclaimableKB: Int { entries.filter { $0.location.tier.cleanable(includeExpensive: false) }.reduce(0) { $0 + $1.sizeKB } }
+  /// 기본 정리 대상(safe + artifact) — 실행 중이라 빼는 몫은 제외
+  public var reclaimableKB: Int { entries.filter { $0.location.tier.cleanable(includeExpensive: false) }.reduce(0) { $0 + $1.sizeKB - $1.blockedKB } }
+  /// 실행 중이라 정리에서 뺀 앱별 용량(큰 순) — 앱을 끄고 다시 돌릴지 판단하려면 얼마가 걸려 있는지 알아야 한다
+  public var blockedByApp: [(name: String, kb: Int)] {
+    var by: [String: Int] = [:]
+    for e in entries { for (p, app) in e.blockedByRunning { by[app, default: 0] += e.pathSizes[p] ?? 0 } }
+    return by.map { ($0.key, $0.value) }.sorted { $0.1 > $1.1 }
+  }
+  /// 실행 중 앱 조회 실패 — 보호가 꺼진 상태이므로 반드시 알린다
+  public var runningCheckFailed = false
+  /// APFS 로컬 스냅샷 이름(nil = 확인 못 함)
+  public var snapshots: [String]?
+  /// Ollama 모델(nil = ollama 없음·서버 꺼짐)
+  public var ollamaModels: [OllamaModel]?
   public var expensiveKB: Int { entries.filter { $0.location.tier == .expensive }.reduce(0) { $0 + $1.sizeKB } }
   public var freeBytes: Int64?
   public var totalBytes: Int64?
@@ -178,7 +196,31 @@ public enum Disk {
 
   // MARK: 측정
 
-  public static func scan(runner: CommandRunner, inventory: Inventory?, home: String = NSHomeDirectory()) async -> DiskReport {
+  /// 경로 중 바로가기(심볼릭 링크)인 것 → 실제 위치(절대 경로).
+  static func symlinkTargets(_ paths: [String]) -> [String: String] {
+    var out: [String: String] = [:]
+    for p in paths {
+      guard let t = try? FileManager.default.destinationOfSymbolicLink(atPath: p) else { continue }
+      out[p] = t.hasPrefix("/") ? t : ((p as NSString).deletingLastPathComponent as NSString).appendingPathComponent(t)
+    }
+    return out
+  }
+
+  /// `/Volumes/<디스크>/…` → 디스크 이름(외장·다른 볼륨). 아니면 nil(순수).
+  public static func externalVolume(_ path: String) -> String? {
+    let parts = path.split(separator: "/")
+    return parts.count >= 2 && parts[0] == "Volumes" ? String(parts[1]) : nil
+  }
+
+  /// 실행 중인 앱의 캐시 경로(순수). 앱 폴더 단위(Application Support/<앱>)로 묶이는 위치만 대상.
+  public static func blocked(home: String, groupBy: String?, paths: [String], running: [String]) -> [String: String] {
+    guard groupBy == groupByAppSupportDir else { return [:] }
+    var out: [String: String] = [:]
+    for p in paths { if let app = appSupportDirName(home: home, path: p), Running.matches(dirName: app, running: running) { out[p] = app } }
+    return out
+  }
+
+  public static func scan(runner: CommandRunner, inventory: Inventory?, running: [String]?, home: String = NSHomeDirectory()) async -> DiskReport {
     let byID = resolve(home: home)
     let tools = inventory.map { inv in detectTools(inv) { runner.resolve($0) != nil } }
     var entries: [DiskEntry] = locations.compactMap { l in
@@ -197,11 +239,18 @@ public enum Disk {
       for await (i, sizes, partial, denied) in group {
         entries[i].pathSizes = sizes; entries[i].partial = partial; entries[i].deniedPaths = denied
         entries[i].breakdown = groupUsage(home: home, groupBy: entries[i].location.group_by, sizes: sizes)
+        entries[i].linkedTo = symlinkTargets(entries[i].paths)
+        entries[i].blockedByRunning = blocked(home: home, groupBy: entries[i].location.group_by, paths: entries[i].paths, running: running ?? [])
         if next < entries.count { launch(next); next += 1 }
       }
     }
     var r = DiskReport()
     r.entries = entries.sorted { $0.sizeKB > $1.sizeKB }
+    r.runningCheckFailed = running == nil
+    async let snaps = Snapshots.scan(runner: runner)
+    async let models = Ollama.scan(runner: runner)
+    r.snapshots = await snaps
+    r.ollamaModels = await models
     if let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]) {
       r.freeBytes = v.volumeAvailableCapacityForImportantUsage; r.totalBytes = v.volumeTotalCapacity.map(Int64.init)
     }

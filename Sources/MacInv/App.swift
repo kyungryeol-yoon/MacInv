@@ -107,7 +107,8 @@ final class AppModel: ObservableObject {
       inventory = inv; scanning = false
       hasMise = r.resolve("mise") != nil
       scanningDisk = true
-      Task { disk = await Disk.scan(runner: r, inventory: inv); scanningDisk = false }
+      let running = Running.current()
+      Task { disk = await Disk.scan(runner: r, inventory: inv, running: running); scanningDisk = false }
       // 런타임 EOL: 7일 캐시, 실패·오프라인이면 조용히 생략
       Task {
         let installed = inv.runtimes.filter(\.installed)

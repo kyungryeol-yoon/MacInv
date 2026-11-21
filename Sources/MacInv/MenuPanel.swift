@@ -74,6 +74,8 @@ struct MenuPanel: View {
       let orphans = d.entries.filter(\.orphan).count
       var details = ["재다운로드 비싼 것 \(sizeText(d.expensiveKB))" + (d.freeBytes.map { " · 디스크 여유 \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? "")]
       if let top = d.entries.first { details.append("가장 큰 곳: \(top.location.name) \(sizeText(top.sizeKB))") }
+      let blocked = d.blockedByApp
+      if !blocked.isEmpty { details.append("⏸ 실행 중이라 뺌: " + blocked.prefix(2).map { "\($0.name) \(sizeText($0.kb))" }.joined(separator: " · ")) }
       if orphans > 0 { details.append("⚠️ 고아 캐시 \(orphans)개") }
       return PanelCard(symbol: "internaldrive.fill", color: orphans > 0 ? .orange : .green, title: "정리 가능",
                        value: sizeText(d.reclaimableKB), details: details) { model.open(.disk, using: openWindow) }

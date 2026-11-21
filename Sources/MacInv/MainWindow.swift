@@ -62,7 +62,7 @@ struct MainWindow: View {
           case .apps: AppsTable(apps: filtered(model.inventory!.apps) { $0.name + " " + ($0.bundleID ?? "") })
           case .disk: DiskView(report: model.disk, scanning: model.scanningDisk, query: query)
           case .updates: UpdatesView(items: model.outdated.map { filtered($0) { $0.name } }, checking: model.checkingUpdates, warnings: model.outdatedWarnings)
-          case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name })
+          case .formulae: FormulaeTable(items: filtered(model.inventory!.formulae) { $0.name }, all: model.inventory!.formulae)
           case .casks: CasksTable(items: filtered(model.inventory!.casks) { $0.token + " " + $0.appNames.joined(separator: " ") })
           case .packages: PackagesTable(items: filtered(model.inventory!.packages) { $0.name })
           case .runtimes: RuntimesView(runtimes: filtered(model.inventory!.runtimes) { $0.name }, managers: model.inventory!.versionManagers,
@@ -138,84 +138,6 @@ func partialHelp(_ a: AppItem) -> String {
   return s
 }
 
-struct AppsTable: View {
-  let apps: [AppItem]
-  @State private var order = [KeyPathComparator(\AppItem.name, comparator: .localizedStandard)]
-
-  var body: some View {
-    Table(apps.sorted(using: order), sortOrder: $order) {
-      TableColumn("이름", value: \.name, comparator: .localizedStandard) { a in
-        HStack(spacing: 8) {
-          Image(nsImage: NSWorkspace.shared.icon(forFile: a.path)).resizable().frame(width: 18, height: 18)
-          Text(a.name)
-        }
-      }
-      .width(min: 160, ideal: 220)
-      TableColumn("버전") { a in Text(a.version ?? "—").foregroundStyle(.secondary) }
-        .width(min: 60, ideal: 90)
-      TableColumn("출처", value: \.origin.label) { a in Text(a.origin.label) }
-        .width(min: 90, ideal: 130)
-      TableColumn("합계", value: \.totalKB.orZero) { a in
-        HStack(spacing: 3) {
-          Text(sizeText(a.totalKB)).monospacedDigit()
-          if a.dataPartial { InfoBadge(text: partialHelp(a)) }
-        }
-      }
-      .width(min: 80, ideal: 95)
-      TableColumn("번들", value: \.bundleKB.orZero) { a in Text(sizeText(a.bundleKB)).monospacedDigit().foregroundStyle(.secondary) }
-        .width(min: 60, ideal: 75)
-      TableColumn("데이터", value: \.dataKB.orZero) { a in
-        Text(a.dataPartial ? "\(sizeText(a.dataKB)) 이상" : sizeText(a.dataKB)).monospacedDigit().foregroundStyle(.secondary)
-      }
-      .width(min: 70, ideal: 95)
-      TableColumn("위치") { a in Text((a.path as NSString).deletingLastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
-        .width(min: 120, ideal: 200)
-      TableColumn("번들 ID") { a in Text(a.bundleID ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
-    }
-  }
-}
-
-extension Optional where Wrapped == Int { var orZero: Int { self ?? -1 } }
-
-struct FormulaeTable: View {
-  let items: [BrewFormula]
-  var body: some View {
-    Table(items) {
-      TableColumn("이름", value: \.name)
-      TableColumn("버전") { f in Text(f.version ?? "—").foregroundStyle(.secondary) }
-      TableColumn("설치") { f in Text(f.onRequest ? "직접 설치" : "의존성으로 설치").foregroundStyle(f.onRequest ? .primary : .secondary) }
-      TableColumn("의존하는 것") { f in Text(f.dependencies.isEmpty ? "—" : f.dependencies.joined(separator: ", ")).foregroundStyle(.secondary).lineLimit(1) }
-    }
-  }
-}
-
-struct CasksTable: View {
-  let items: [BrewCask]
-  var body: some View {
-    Table(items) {
-      TableColumn("이름", value: \.token)
-      TableColumn("버전") { c in Text(c.version ?? "—").foregroundStyle(.secondary) }
-      TableColumn("설치한 앱") { c in Text(c.appNames.isEmpty ? "—" : c.appNames.joined(separator: ", ")) }
-    }
-  }
-}
-
-struct PackagesTable: View {
-  let items: [PackageItem]
-  var body: some View {
-    if items.isEmpty {
-      ContentUnavailableView("패키지 없음", systemImage: "cube", description: Text("npm 전역·pipx·cargo·Go·App Store(mas)로 설치한 것이 없거나, 그 도구가 없습니다."))
-    } else {
-      Table(items) {
-        TableColumn("이름", value: \.name)
-        TableColumn("버전") { p in Text(p.version ?? "—").foregroundStyle(.secondary) }
-        TableColumn("관리자") { p in Text(p.manager.label) }
-        TableColumn("경로") { p in Text(p.path ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
-      }
-    }
-  }
-}
-
 struct EnvironmentView: View {
   @EnvironmentObject private var model: AppModel
   var body: some View {
@@ -255,7 +177,12 @@ struct RuntimesView: View {
         TableColumn("버전") { r in Text(r.installed ? (r.version ?? "?") : "설치 안 됨").foregroundStyle(r.installed ? .primary : .secondary) }
           .width(min: 70, ideal: 90)
         TableColumn("관리") { r in
-          if let a = r.active { Text(a.manager.label + (a.package.map { " \($0)" } ?? "")) } else { Text("—").foregroundStyle(.secondary) }
+          if let a = r.active {
+            HStack(spacing: 4) {
+              Text(a.manager.label + (a.package.map { " \($0)" } ?? ""))
+              if a.manager == .system { LockBadge(text: "macOS에 딸린 \(r.name)입니다 — 건드리지 않습니다.\n\n시스템 도구가 이 버전에 기대고 있을 수 있어 제자리 업그레이드·삭제를 하지 않습니다. 새 버전이 필요하면 따로 설치해 PATH 앞에 둡니다.") }
+            }
+          } else { Text("—").foregroundStyle(.secondary) }
         }
         .width(min: 80, ideal: 110)
         TableColumn("지원") { r in support(r) }
@@ -333,88 +260,6 @@ struct RuntimesView: View {
   }
 }
 
-struct BackgroundTable: View {
-  let items: [BackgroundItem]
-  var body: some View {
-    Table(items) {
-      TableColumn("이름") { b in
-        HStack(spacing: 4) {
-          if b.owner == .unknown || b.programMissing || b.isEmpty { InfoBadge(text: backgroundHelp(b)) }
-          Text(b.label ?? ((b.file as NSString).lastPathComponent as NSString).deletingPathExtension)
-        }
-      }
-      .width(min: 200, ideal: 260)
-      TableColumn("주인") { b in Text(b.owner.label).foregroundStyle(b.owner == .unknown ? .orange : .primary) }
-        .width(min: 120, ideal: 170)
-      TableColumn("상태") { b in Text(state(b)).foregroundStyle(b.programMissing || b.isEmpty ? .orange : .secondary) }
-        .width(min: 90, ideal: 120)
-      TableColumn("종류") { b in Text(b.kind.label).foregroundStyle(.secondary) }
-        .width(min: 90, ideal: 110)
-      TableColumn("실행 파일") { b in Text(b.program ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
-    }
-  }
-
-  private func backgroundHelp(_ b: BackgroundItem) -> String {
-    var lines: [String] = []
-    if b.isEmpty { lines.append("내용이 빈 plist({})입니다 — 아무것도 실행하지 않는 껍데기입니다. 앱이 옛 구성요소를 끄면서 남긴 파일로 보입니다(예: 구글의 옛 Keystone).") }
-    if b.programMissing { lines.append("실행 파일이 디스크에 없습니다 — 주인 앱을 지운 뒤 남은 항목일 가능성이 큽니다.") }
-    if b.owner == .unknown { lines.append("설치된 어느 앱·brew 포뮬러와도 연결되지 않았습니다(실행 파일 위치, 이름·번들 ID, 서명 개발사로 찾음).") }
-    lines.append("파일: " + b.file.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-    return lines.joined(separator: "\n\n")
-  }
-
-  private func state(_ b: BackgroundItem) -> String {
-    if b.isEmpty { return "내용 없음" }
-    if b.programMissing { return "실행 파일 없음" }
-    return b.runAtLoad ? "로그인 시 실행" : "필요할 때 실행"
-  }
-}
-
-struct UpdatesView: View {
-  let items: [OutdatedItem]?
-  let checking: Bool
-  let warnings: [String]
-
-  var body: some View {
-    if let items {
-      if items.isEmpty {
-        ContentUnavailableView("모두 최신입니다", systemImage: "checkmark.circle", description: Text("brew · npm 전역 · App Store(mas)에 업데이트할 것이 없습니다."))
-      } else {
-        VStack(alignment: .leading, spacing: 0) {
-          if items.contains(where: \.runtimeMajor) {
-            Label("런타임 메이저 업그레이드는 프로젝트를 깨뜨릴 수 있어 \"전부 업데이트\"에서 뺍니다. 필요하면 하나씩 고르세요.", systemImage: "exclamationmark.triangle.fill")
-              .foregroundStyle(.orange).font(.callout).padding(10)
-          }
-          Table(items.sorted { ($0.runtimeMajor ? 0 : 1, $0.source.rawValue, $0.name) < ($1.runtimeMajor ? 0 : 1, $1.source.rawValue, $1.name) }) {
-            TableColumn("이름") { o in Text(o.name) }.width(min: 140, ideal: 200)
-            TableColumn("출처") { o in Text(o.source.label).foregroundStyle(.secondary) }.width(min: 70, ideal: 90)
-            TableColumn("현재") { o in Text(o.current).foregroundStyle(.secondary).monospacedDigit() }.width(min: 70, ideal: 100)
-            TableColumn("최신") { o in Text(o.latest).monospacedDigit() }.width(min: 70, ideal: 100)
-            TableColumn("구분") { o in kind(o) }
-          }
-        }
-      }
-    } else if checking {
-      ProgressView("업데이트 확인 중…").frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      ContentUnavailableView("업데이트를 확인하지 못했습니다", systemImage: "exclamationmark.triangle", description: Text(warnings.joined(separator: "\n")))
-    }
-  }
-
-  @ViewBuilder private func kind(_ o: OutdatedItem) -> some View {
-    if o.pinned {
-      Text("고정됨(brew pin)").foregroundStyle(.secondary)
-    } else if o.runtimeMajor {
-      HStack(spacing: 4) {
-        InfoBadge(text: "\(o.name) \(o.current) → \(o.latest)는 언어 런타임의 메이저 업그레이드입니다.\n\n이 버전에 맞춰 둔 프로젝트가 깨질 수 있어 \"전부 업데이트\"에서는 빼고, 직접 고를 때만 실행합니다.")
-        Text("런타임 메이저")
-      }
-    } else {
-      Text("일반").foregroundStyle(.secondary)
-    }
-  }
-}
-
 /// ⚠️ 아이콘 — 마우스를 올리거나 누르면 설명 창.
 /// 표(Table) 칸 안에서는 `.help` 툴팁이 뜨지 않아서(2026-11-21 실측) 팝오버로 보여 준다.
 struct InfoBadge: View {
@@ -451,12 +296,18 @@ struct DiskView: View {
   let scanning: Bool
   let query: String
   @State private var order = [KeyPathComparator(\DiskEntry.sizeKB, order: .reverse)]
+  @State private var tier: Tier? = nil
 
   var body: some View {
     if let r = report {
       VStack(alignment: .leading, spacing: 0) {
         summary(r).padding(12)
+        notices(r)
         Divider()
+        FilterBar(options: [(nil, "전체", r.entries.count)] + [Tier.safe, .artifact, .expensive].compactMap { t in
+          let n = r.entries.filter { $0.location.tier == t }.count
+          return n > 0 ? (Optional(t), t.label, n) : nil
+        }, selection: $tier)
         Table(rows(r), sortOrder: $order) {
           TableColumn("위치", value: \.location.name) { e in
             VStack(alignment: .leading, spacing: 2) {
@@ -476,12 +327,8 @@ struct DiskView: View {
           .width(min: 80, ideal: 100)
           TableColumn("등급") { e in Text(e.location.tier.label).foregroundStyle(e.location.tier == .expensive ? .orange : .secondary) }
             .width(min: 90, ideal: 110)
-          TableColumn("상태") { e in
-            if e.orphan {
-              HStack(spacing: 4) { InfoBadge(text: orphanText(e)); Text("고아 캐시").foregroundStyle(.orange) }
-            } else { Text("") }
-          }
-          .width(min: 80, ideal: 100)
+          TableColumn("상태") { e in status(e) }
+          .width(min: 110, ideal: 150)
           TableColumn("정리 방법") { e in
             HStack(spacing: 4) {
               Text(method(e)).foregroundStyle(.secondary).lineLimit(1)
@@ -489,15 +336,85 @@ struct DiskView: View {
             }
           }
         }
+        if let models = r.ollamaModels, !models.isEmpty { ollama(models, r).padding(12) }
       }
     } else {
       ProgressView(scanning ? "디스크 재는 중…" : "인벤토리를 먼저 스캔합니다…").frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
+  @ViewBuilder private func status(_ e: DiskEntry) -> some View {
+    HStack(spacing: 4) {
+      if e.orphan { InfoBadge(text: orphanText(e)); Text("고아 캐시").foregroundStyle(.orange) }
+      else if let (p, t) = e.linkedTo.first {
+        InfoBadge(systemImage: "arrow.turn.down.right", color: .secondary, text: linkText(p, t))
+        Text(Disk.externalVolume(t).map { "→ \($0)" } ?? "→ 다른 위치").foregroundStyle(.secondary).lineLimit(1)
+      } else if !e.blockedByRunning.isEmpty {
+        InfoBadge(systemImage: "pause.circle.fill", color: .secondary, text: blockedText(e))
+        Text("일부 실행 중").foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  @ViewBuilder private func notices(_ r: DiskReport) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if r.runningCheckFailed {
+        Label("실행 중인 앱을 확인하지 못했습니다 — 실행 중인 앱의 캐시 보호가 꺼진 상태입니다. 다시 스캔해 주세요.", systemImage: "exclamationmark.triangle.fill")
+          .foregroundStyle(.orange)
+      }
+      let blocked = r.blockedByApp
+      if !blocked.isEmpty {
+        Label("⏸ \(blocked.count)개 앱이 실행 중이라 정리에서 뺐습니다(총 \(sizeText(blocked.reduce(0) { $0 + $1.kb }))): " +
+              blocked.prefix(4).map { "\($0.name) \(sizeText($0.kb))" }.joined(separator: " · ") + " — 앱을 끄고 다시 스캔하면 포함됩니다.",
+              systemImage: "pause.circle")
+          .foregroundStyle(.secondary)
+      }
+      if let s = r.snapshots, !s.isEmpty {
+        HStack(spacing: 4) {
+          Label("Time Machine 로컬 스냅샷 \(s.count)개 — 지운 공간이 바로 여유 공간으로 돌아오지 않을 수 있습니다.", systemImage: "clock.arrow.circlepath")
+            .foregroundStyle(.secondary)
+          InfoBadge(systemImage: "info.circle", color: .secondary, text: "macOS는 지운 파일을 로컬 스냅샷이 계속 붙잡고 있을 수 있습니다. 공간이 필요하면 macOS가 알아서 스냅샷을 줄입니다.\n\n스냅샷을 지우면 그 시점으로 되돌릴 수 없게 되므로 MacInv는 지우지 않고 알려만 드립니다.")
+        }
+      }
+    }
+    .font(.callout)
+    .padding(.horizontal, 12)
+    .padding(.bottom, r.runningCheckFailed || !r.blockedByApp.isEmpty || !(r.snapshots ?? []).isEmpty ? 10 : 0)
+  }
+
+  private func ollama(_ models: [OllamaModel], _ r: DiskReport) -> some View {
+    let link = r.entries.first { $0.location.id == "ollama-models" }?.linkedTo.values.first
+    return VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text("Ollama 모델 \(models.count)개 · \(sizeText(models.reduce(0) { $0 + $1.sizeKB }))").font(.callout.weight(.semibold))
+        if let link, let vol = Disk.externalVolume(link) { Text("· 외장 디스크(\(vol))에 있음 — 이 맥 공간을 차지하지 않음").font(.callout).foregroundStyle(.secondary) }
+        Spacer()
+      }
+      ForEach(models) { m in
+        HStack { Text(m.name).monospaced(); Spacer(); Text(sizeText(m.sizeKB)).monospacedDigit().foregroundStyle(.secondary) }.font(.callout)
+      }
+      Text("모델은 하나씩 고르게 됩니다(6단계) — 하나가 수 GB이고 다시 받기 비쌉니다.").font(.caption).foregroundStyle(.tertiary)
+    }
+    .cardBackground()
+  }
+
+  private func linkText(_ p: String, _ t: String) -> String {
+    let home = NSHomeDirectory()
+    let short = { (x: String) in x.hasPrefix(home) ? "~" + x.dropFirst(home.count) : x }
+    var s = "\(short(p))는 다른 곳으로 가는 바로가기(심볼릭 링크)입니다.\n→ \(short(t))"
+    if let v = Disk.externalVolume(t) { s += "\n\n실제 데이터는 「\(v)」에 있어 이 맥 내장 디스크 공간을 차지하지 않습니다. 그래서 여기 용량은 0에 가깝게 나옵니다." }
+    return s
+  }
+
+  private func blockedText(_ e: DiskEntry) -> String {
+    let apps = Set(e.blockedByRunning.values).sorted()
+    return "실행 중인 앱(\(apps.joined(separator: ", ")))의 캐시 \(sizeText(e.blockedKB))는 정리에서 뺍니다.\n\n켜져 있는 동안 캐시를 지우면 앱이 오작동할 수 있습니다. 앱을 끄고 다시 스캔하면 포함됩니다."
+  }
+
   private func rows(_ r: DiskReport) -> [DiskEntry] {
     let q = query.trimmingCharacters(in: .whitespaces)
-    let base = q.isEmpty ? r.entries : r.entries.filter { ($0.location.name + " " + $0.breakdown.map(\.name).joined(separator: " ")).localizedCaseInsensitiveContains(q) }
+    let byTier = tier == nil ? r.entries : r.entries.filter { $0.location.tier == tier }
+    let base = q.isEmpty ? byTier : byTier.filter { ($0.location.name + " " + $0.breakdown.map(\.name).joined(separator: " ")).localizedCaseInsensitiveContains(q) }
     return base.sorted(using: order)
   }
 
