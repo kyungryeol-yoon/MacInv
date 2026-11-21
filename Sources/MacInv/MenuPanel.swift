@@ -126,7 +126,7 @@ struct MenuPanel: View {
 
   private var footer: some View {
     HStack {
-      Button { model.scan() } label: { Label(model.scanning ? "스캔 중…" : "다시 스캔", systemImage: "arrow.clockwise") }
+      Button { model.scan(refresh: true) } label: { Label(model.scanning ? "스캔 중…" : "다시 스캔", systemImage: "arrow.clockwise") }
         .disabled(model.scanning)
       Spacer()
       Button { NSApplication.shared.terminate(nil) } label: { Label("MacInv 끝내기", systemImage: "power") }

@@ -110,6 +110,9 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 
 ### 업데이트
 - brew formula/cask, npm 전역(`npm install -g <pkg>@latest`), App Store(`mas upgrade <id>`). 삭제와 같은 계획/실행/렌더를 쓴다
+- **「다시 스캔」은 `brew update`를 먼저** 돌린다 — `brew outdated`는 가지고 있는 정보로만 비교해서, 직접 만든 tap의 새 버전(Hum 0.1.1)이 안 보였다(2026-11-21 실측). 켤 때 자동 스캔은 받지 않는다(네트워크·몇 초). 실패하면 경고만 두고 받아 둔 정보로
+- 업데이트는 「업데이트」 화면뿐 아니라 **포뮬러·캐스크·패키지 표에서도**(「최신」 열 · 「업데이트 있음」 분류 · 「업데이트…」 버튼, 2026-11-21 사용자 요청). 같은 업데이트 목록·같은 확인 화면을 쓴다
+- `auto_updates true` cask(Chrome·VS Code 등 스스로 업데이트하는 앱)는 brew가 기본으로 업데이트 대기에서 뺀다(`--greedy`로만 보임) — MacInv도 같은 기준
 - **npm 자기 업데이트는 `npx -y npm@latest install -g npm@latest`** — 실행 중인 npm이 자기 모듈을 지우다 MODULE_NOT_FOUND로 죽는다(실측)
 - **"전부 업데이트"에 런타임 메이저를 넣지 않는다** — brew는 node 25→26도 그냥 outdated로 보고하는데, 생각 없이 누르는 버튼에 프로젝트를 깨뜨릴 것이 들어가면 안 된다. "⏸ 제외" 목록과 명령만 보여준다. 같은 사이클 패치는 포함. 개별로 고른 건 경고와 함께 실행 (`clean.SplitRuntimeMajors`)
 

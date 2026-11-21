@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
   }
 
   @objc private func openAction() { showMain() }
-  @objc private func scanAction() { model.scan() }
+  @objc private func scanAction() { model.scan(refresh: true) }
 
   // MARK: 목록 창
   /// 창은 처음 열 때 만들고, 닫아도 버리지 않는다(다시 열면 보던 곳 그대로). 켤 때는 띄우지 않는다.
@@ -181,7 +181,10 @@ final class AppModel: ObservableObject {
   }
 
   /// PATH 확인 → 인벤토리 수집 → (목록을 먼저 보여 주고) 앱 번들 용량 채우기.
-  func scan() {
+  /// - refresh: 업데이트를 보기 전에 `brew update`로 brew의 버전 정보를 새로 받는다(「다시 스캔」 버튼). 켤 때 자동 스캔은 받지 않는다.
+  ///   `brew outdated`는 가지고 있는 정보로만 비교해서, 받지 않으면 새 버전이 안 보인다(2026-11-21 실측 — 직접 만든 tap의 Hum 0.1.1이
+  ///   `brew update` 전까지 안 보임). 설치된 것은 바꾸지 않는다.
+  func scan(refresh: Bool = false) {
     guard !scanning else { return }
     scanning = true
     checkPermissions()
@@ -194,8 +197,13 @@ final class AppModel: ObservableObject {
       // 업데이트 대기는 따로(npm outdated는 네트워크를 탄다) — 목록·용량과 나란히
       checkingUpdates = true
       Task {
+        var refreshWarning: String?
+        if refresh, r.resolve("brew") != nil {
+          do { _ = try await r.run("brew", ["update", "--quiet"], timeout: 180, strict: true) }
+          catch { refreshWarning = "brew 정보를 새로 받지 못했습니다(인터넷 연결 확인) — 마지막으로 받은 정보로 보여 줍니다." }
+        }
         let u = await Updates.scan(runner: r)
-        outdated = u.items; outdatedWarnings = u.warnings; checkingUpdates = false
+        outdated = u.items; outdatedWarnings = u.warnings + [refreshWarning].compactMap { $0 }; checkingUpdates = false
       }
       let inv = await InventoryScanner.scan(runner: r)
       inventory = inv; scanning = false

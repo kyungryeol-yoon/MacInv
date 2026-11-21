@@ -45,6 +45,53 @@ func planMenu(_ run: (() -> Void)?, title: String = "삭제…") -> some View {
   Group { if let run { Button(title, action: run) } }
 }
 
+/// 표 줄 오른쪽 클릭 메뉴: 업데이트(있을 때) + 삭제
+func rowMenu(update: (() -> Void)?, delete: (() -> Void)?) -> some View {
+  Group {
+    if let update { Button("업데이트…", action: update) }
+    if let delete { Button("삭제…", action: delete) }
+  }
+}
+
+/// 「최신」 칸 — 업데이트가 있으면 새 버전(파랑), 런타임 메이저는 주황 + 설명, 고정은 회색
+struct LatestCell: View {
+  let item: OutdatedItem?
+  var body: some View {
+    if let u = item {
+      HStack(spacing: 3) {
+        if u.pinned {
+          Text("\(u.latest) · 고정됨").foregroundStyle(.secondary)
+        } else if u.runtimeMajor {
+          Text("→ \(u.latest)").foregroundStyle(.orange).monospacedDigit()
+          InfoBadge(text: "\(u.name) \(u.current) → \(u.latest)는 언어 런타임의 메이저 업그레이드입니다.\n\n이 버전에 맞춰 둔 프로젝트가 깨질 수 있어 「모두 업데이트」에서는 빼고, 직접 고를 때만 실행합니다.")
+        } else {
+          Text("→ \(u.latest)").foregroundStyle(.blue).monospacedDigit()
+        }
+      }
+    } else {
+      Text("—").foregroundStyle(.tertiary)
+    }
+  }
+}
+
+extension Optional where Wrapped == OutdatedItem {
+  /// 정렬용: 업데이트 있는 것이 먼저 오게(빈 값은 맨 뒤)
+  var latestKey: String { map { $0.pinned ? "1" + $0.latest : "0" + $0.latest } ?? "2" }
+}
+
+extension AppModel {
+  /// 이 출처·이름의 업데이트 대기(없으면 nil)
+  func update(_ source: OutdatedItem.Source, _ name: String) -> OutdatedItem? {
+    outdated?.first { $0.source == source && $0.name == name }
+  }
+
+  /// 한 항목 업데이트 확인 화면을 여는 동작(고정된 것은 nil — 버튼이 꺼진다)
+  func updateAction(_ u: OutdatedItem?) -> (() -> Void)? {
+    guard let u, !u.pinned else { return nil }
+    return { self.showPlan { Planner.upgrade([u], everything: false, inventory: $0, env: $1) } }
+  }
+}
+
 /// 🔒 — 지우지 않는 것.
 struct LockBadge: View {
   let text: String
@@ -123,6 +170,9 @@ struct AppsTable: View {
 struct FormulaRow: Identifiable, Hashable {
   let f: BrewFormula
   let users: [String]
+  /// 업데이트 대기(없으면 nil)
+  let upd: OutdatedItem?
+  var latestKey: String { upd.latestKey }
   var id: String { f.name }
   var name: String { f.name }
   var version: String { f.version ?? "—" }
@@ -136,7 +186,7 @@ struct FormulaeTable: View {
   let items: [BrewFormula]
   /// 역의존 계산용 전체(걸러진 목록으로 세면 틀린다)
   let all: [BrewFormula]
-  enum Filter: Hashable { case all, onRequest, dependency, unused }
+  enum Filter: Hashable { case all, outdated, onRequest, dependency, unused }
   @State private var filter = Filter.all
   @State private var order = [KeyPathComparator(\FormulaRow.name)]
   @State private var selection: FormulaRow.ID?
@@ -149,12 +199,16 @@ struct FormulaeTable: View {
 
   var body: some View {
     let users = BrewGraph.dependents(all)
-    let rows = items.map { FormulaRow(f: $0, users: users[$0.name] ?? []) }
+    let rows = items.map { FormulaRow(f: $0, users: users[$0.name] ?? [], upd: model.update(.brewFormula, $0.name)) }
     let unused = rows.filter { !$0.f.onRequest && $0.users.isEmpty }
+    let chosen = rows.first { $0.id == selection }
     VStack(spacing: 0) {
-      FilterBar(options: [(.all, "전체", rows.count), (.onRequest, "직접 설치", rows.filter(\.f.onRequest).count),
+      FilterBar(options: [(.all, "전체", rows.count), (.outdated, "업데이트 있음", rows.filter { $0.upd != nil }.count),
+                          (.onRequest, "직접 설치", rows.filter(\.f.onRequest).count),
                           (.dependency, "의존성", rows.filter { !$0.f.onRequest }.count), (.unused, "아무도 안 씀", unused.count)],
-                selection: $filter, plans: [PlanButton(action: planAction(selection))])
+                selection: $filter, plans: [PlanButton(title: "업데이트…", symbol: "arrow.up.circle", hint: "고른 포뮬러를 업데이트합니다",
+                                                       action: model.updateAction(chosen?.upd)),
+                                            PlanButton(action: planAction(selection))])
       if filter == .unused {
         Label("의존성으로 깔렸는데 이제 이걸 쓰는 포뮬러가 없습니다 — brew autoremove 대상입니다.", systemImage: "info.circle")
           .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 6)
@@ -169,6 +223,8 @@ struct FormulaeTable: View {
         .width(min: 140, ideal: 190)
         TableColumn("버전", value: \.version) { r in Text(r.version).foregroundStyle(.secondary) }
           .width(min: 70, ideal: 100)
+        TableColumn("최신", value: \.latestKey) { r in LatestCell(item: r.upd) }
+          .width(min: 70, ideal: 100)
         TableColumn("설치", value: \.install) { r in
           Text(r.install).foregroundStyle(r.f.onRequest ? Color.primary : (r.users.isEmpty ? Color.orange : Color.secondary))
         }
@@ -180,13 +236,16 @@ struct FormulaeTable: View {
           Text(r.f.dependencies.isEmpty ? "—" : r.f.dependencies.joined(separator: ", ")).foregroundStyle(.secondary).lineLimit(1)
         }
       }
-      .contextMenu(forSelectionType: FormulaRow.ID.self) { ids in planMenu(planAction(ids.first)) }
+      .contextMenu(forSelectionType: FormulaRow.ID.self) { ids in
+        rowMenu(update: model.updateAction(rows.first { $0.id == ids.first }?.upd), delete: planAction(ids.first))
+      }
     }
   }
 
   private func match(_ r: FormulaRow) -> Bool {
     switch filter {
     case .all: return true
+    case .outdated: return r.upd != nil
     case .onRequest: return r.f.onRequest
     case .dependency: return !r.f.onRequest
     case .unused: return !r.f.onRequest && r.users.isEmpty
@@ -198,33 +257,52 @@ struct FormulaeTable: View {
 
 extension BrewCask { var versionText: String { version ?? "—" }; var appsText: String { appNames.joined(separator: ", ") } }
 
+struct CaskRow: Identifiable, Hashable {
+  let c: BrewCask
+  let upd: OutdatedItem?
+  var id: String { c.token }
+  var token: String { c.token }
+  var versionText: String { c.versionText }
+  var appsText: String { c.appsText }
+  var latestKey: String { upd.latestKey }
+}
+
 struct CasksTable: View {
   let items: [BrewCask]
-  @State private var order = [KeyPathComparator(\BrewCask.token)]
-  @State private var selection: BrewCask.ID?
-  @State private var none = 0
+  enum Filter: Hashable { case all, outdated }
+  @State private var filter = Filter.all
+  @State private var order = [KeyPathComparator(\CaskRow.token)]
+  @State private var selection: CaskRow.ID?
   @EnvironmentObject private var model: AppModel
   private let me = SelfIdentity.current()
 
-  private func planAction(_ id: BrewCask.ID?) -> (() -> Void)? {
+  private func planAction(_ id: CaskRow.ID?) -> (() -> Void)? {
     guard let id, let c = items.first(where: { $0.id == id }) else { return nil }
     return { model.showPlan { Planner.removal(cask: c, inventory: $0, env: $1) } }
   }
 
   var body: some View {
+    let rows = items.map { CaskRow(c: $0, upd: model.update(.brewCask, $0.token)) }
+    let chosen = rows.first { $0.id == selection }
     VStack(spacing: 0) {
-      FilterBar(options: [(Int, String, Int)](), selection: $none, plans: [PlanButton(action: planAction(selection))])
-      Table(items.sorted(using: order), selection: $selection, sortOrder: $order) {
-        TableColumn("이름", value: \.token) { c in
+      FilterBar(options: [(.all, "전체", rows.count), (.outdated, "업데이트 있음", rows.filter { $0.upd != nil }.count)], selection: $filter,
+                plans: [PlanButton(title: "업데이트…", symbol: "arrow.up.circle", hint: "고른 앱을 업데이트합니다(brew upgrade --cask)",
+                                   action: model.updateAction(chosen?.upd)),
+                        PlanButton(action: planAction(selection))])
+      Table(rows.filter { filter == .all || $0.upd != nil }.sorted(using: order), selection: $selection, sortOrder: $order) {
+        TableColumn("이름", value: \.token) { r in
           HStack(spacing: 4) {
-            Text(c.token)
-            if me.isSelf(caskToken: c.token) { LockBadge(text: "MacInv 자신입니다 — 정리 대상에서 뺍니다.\n\n지우려면 터미널에서 brew uninstall --cask macinv") }
+            Text(r.token)
+            if me.isSelf(caskToken: r.token) { LockBadge(text: "MacInv 자신입니다 — 정리 대상에서 뺍니다.\n\n지우려면 터미널에서 brew uninstall --cask macinv") }
           }
         }
-        TableColumn("버전", value: \.versionText) { c in Text(c.versionText).foregroundStyle(.secondary) }
-        TableColumn("설치한 앱", value: \.appsText) { c in Text(c.appNames.isEmpty ? "—" : c.appsText) }
+        TableColumn("버전", value: \.versionText) { r in Text(r.versionText).foregroundStyle(.secondary) }
+        TableColumn("최신", value: \.latestKey) { r in LatestCell(item: r.upd) }
+        TableColumn("설치한 앱", value: \.appsText) { r in Text(r.c.appNames.isEmpty ? "—" : r.appsText) }
       }
-      .contextMenu(forSelectionType: BrewCask.ID.self) { ids in planMenu(planAction(ids.first)) }
+      .contextMenu(forSelectionType: CaskRow.ID.self) { ids in
+        rowMenu(update: model.updateAction(rows.first { $0.id == ids.first }?.upd), delete: planAction(ids.first))
+      }
     }
   }
 }
@@ -233,34 +311,72 @@ struct CasksTable: View {
 
 extension PackageItem { var versionText: String { version ?? "—" }; var managerText: String { manager.label }; var pathText: String { path ?? "—" } }
 
+struct PackageRow: Identifiable, Hashable {
+  let p: PackageItem
+  let upd: OutdatedItem?
+  var id: String { p.id }
+  var name: String { p.name }
+  var versionText: String { p.versionText }
+  var managerText: String { p.managerText }
+  var pathText: String { p.pathText }
+  var latestKey: String { upd.latestKey }
+}
+
 struct PackagesTable: View {
   let items: [PackageItem]
-  @State private var filter: PackageManager? = nil
-  @State private var order = [KeyPathComparator(\PackageItem.name)]
-  @State private var selection: PackageItem.ID?
+  enum Filter: Hashable { case all, outdated, manager(PackageManager) }
+  @State private var filter = Filter.all
+  @State private var order = [KeyPathComparator(\PackageRow.name)]
+  @State private var selection: PackageRow.ID?
   @EnvironmentObject private var model: AppModel
 
-  private func planAction(_ id: PackageItem.ID?) -> (() -> Void)? {
+  private func planAction(_ id: PackageRow.ID?) -> (() -> Void)? {
     guard let id, let p = items.first(where: { $0.id == id }) else { return nil }
     return { model.showPlan { Planner.removal(package: p, inventory: $0, env: $1) } }
+  }
+
+  /// 업데이트 대기는 npm 전역과 App Store만 안다(pipx·cargo·Go는 확인하지 않음)
+  private func upd(_ p: PackageItem) -> OutdatedItem? {
+    switch p.manager {
+    case .npm: return model.update(.npm, p.name)
+    case .mas: return model.update(.mas, p.name)
+    default: return nil
+    }
   }
 
   var body: some View {
     if items.isEmpty {
       ContentUnavailableView("패키지 없음", systemImage: "cube", description: Text("npm 전역·pipx·cargo·Go·App Store(mas)로 설치한 것이 없거나, 그 도구가 없습니다."))
     } else {
+      let rows = items.map { PackageRow(p: $0, upd: upd($0)) }
+      let chosen = rows.first { $0.id == selection }
       let present = PackageManager.allCases.filter { m in items.contains { $0.manager == m } }
       VStack(spacing: 0) {
-        FilterBar(options: [(nil, "전체", items.count)] + present.map { m in (Optional(m), m.label, items.filter { $0.manager == m }.count) },
-                  selection: $filter, plans: [PlanButton(action: planAction(selection))])
-        Table(items.filter { filter == nil || $0.manager == filter }.sorted(using: order), selection: $selection, sortOrder: $order) {
+        FilterBar(options: [(Filter.all, "전체", rows.count), (.outdated, "업데이트 있음", rows.filter { $0.upd != nil }.count)]
+                    + present.map { m in (Filter.manager(m), m.label, items.filter { $0.manager == m }.count) },
+                  selection: $filter,
+                  plans: [PlanButton(title: "업데이트…", symbol: "arrow.up.circle", hint: "고른 패키지를 업데이트합니다(npm 전역·App Store)",
+                                     action: model.updateAction(chosen?.upd)),
+                          PlanButton(action: planAction(selection))])
+        Table(rows.filter(match).sorted(using: order), selection: $selection, sortOrder: $order) {
           TableColumn("이름", value: \.name)
-          TableColumn("버전", value: \.versionText) { p in Text(p.versionText).foregroundStyle(.secondary) }
-          TableColumn("관리자", value: \.managerText) { p in Text(p.managerText) }
-          TableColumn("경로", value: \.pathText) { p in Text(p.pathText).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+          TableColumn("버전", value: \.versionText) { r in Text(r.versionText).foregroundStyle(.secondary) }
+          TableColumn("최신", value: \.latestKey) { r in LatestCell(item: r.upd) }
+          TableColumn("관리자", value: \.managerText) { r in Text(r.managerText) }
+          TableColumn("경로", value: \.pathText) { r in Text(r.pathText).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
         }
-        .contextMenu(forSelectionType: PackageItem.ID.self) { ids in planMenu(planAction(ids.first)) }
+        .contextMenu(forSelectionType: PackageRow.ID.self) { ids in
+          rowMenu(update: model.updateAction(rows.first { $0.id == ids.first }?.upd), delete: planAction(ids.first))
+        }
       }
+    }
+  }
+
+  private func match(_ r: PackageRow) -> Bool {
+    switch filter {
+    case .all: return true
+    case .outdated: return r.upd != nil
+    case .manager(let m): return r.p.manager == m
     }
   }
 }
@@ -351,7 +467,8 @@ struct UpdatesView: View {
   var body: some View {
     if let items {
       if items.isEmpty {
-        ContentUnavailableView("모두 최신입니다", systemImage: "checkmark.circle", description: Text("brew · npm 전역 · App Store(mas)에 업데이트할 것이 없습니다."))
+        ContentUnavailableView("모두 최신입니다", systemImage: "checkmark.circle",
+                               description: Text((["brew · npm 전역 · App Store(mas)에 업데이트할 것이 없습니다."] + warnings).joined(separator: "\n")))
       } else {
         VStack(alignment: .leading, spacing: 0) {
           FilterBar(options: [(.all, "전체", items.count), (.normal, "일반", items.filter { $0.kindRank == 1 }.count),
@@ -361,6 +478,9 @@ struct UpdatesView: View {
                                        hint: "⌘-클릭으로 여러 개, ⇧-클릭으로 범위, ⌘A로 전부 고를 수 있습니다", action: planAction(selection)),
                             PlanButton(title: "모두 업데이트…", symbol: "arrow.up.circle",
                                        hint: "런타임 메이저·고정된 것·암호가 필요한 것은 빼고 업데이트합니다", action: planAction([], everything: true))])
+          ForEach(warnings, id: \.self) { w in
+            Label(w, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).font(.callout).padding(.horizontal, 12).padding(.bottom, 6)
+          }
           if items.contains(where: \.runtimeMajor) && (filter == .all || filter == .major) {
             Label("런타임 메이저 업그레이드는 프로젝트를 깨뜨릴 수 있어 \"전부 업데이트\"에서 뺍니다. 필요하면 하나씩 고르세요.", systemImage: "exclamationmark.triangle.fill")
               .foregroundStyle(.orange).font(.callout).padding(.horizontal, 12).padding(.bottom, 6)

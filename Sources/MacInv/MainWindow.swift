@@ -78,7 +78,7 @@ struct MainWindow: View {
       .sheet(item: $model.shownPlan) { PlanSheet(shown: $0).interactiveDismissDisabled($0.phase == .running) }
       .toolbar {
         ToolbarItem {
-          Button { model.scan() } label: { Label("다시 스캔", systemImage: "arrow.clockwise") }
+          Button { model.scan(refresh: true) } label: { Label("다시 스캔", systemImage: "arrow.clockwise") }
             .disabled(model.scanning)
         }
       }
