@@ -31,6 +31,13 @@ struct PlannerMoreTests {
     #expect(p.targets.allSatisfy { $0.timeout == 1800 })
   }
 
+  /// 「모두 업데이트」만 한 번 더 확인(고른 것은 직접 고른 게 확인)
+  @Test func upgradeEverythingAsksTwice() {
+    #expect(Planner.upgrade([o("git", .brewFormula)], everything: true, inventory: Inventory(), env: env()).requireConfirm)
+    #expect(!Planner.upgrade([o("git", .brewFormula)], everything: false, inventory: Inventory(), env: env()).requireConfirm)
+    #expect(!Planner.upgrade([o("hugo", .brewFormula, pinned: true)], everything: true, inventory: Inventory(), env: env()).requireConfirm)   // 할 게 없으면 묻지 않음
+  }
+
   @Test func upgradeChosenRuntimeMajorIsIncludedWithWarning() {
     let p = Planner.upgrade([o("node", .brewFormula, "25.1.0", "26.0.0")], everything: false, inventory: Inventory(), env: env())
     #expect(p.held.isEmpty && p.targets.count == 1 && p.targets[0].warnings.first?.contains("메이저") == true)

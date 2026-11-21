@@ -116,13 +116,21 @@ struct PlanSheet: View {
   }
 
   private var confirmTitle: String {
-    plan.targets.contains { $0.kind == .ollama } ? "모델을 지울까요?" : plan.targets.contains { $0.kind == .orphan } ? "고아 잔여물을 옮길까요?"
+    plan.verb == "업데이트" ? "\(plan.targets.count)개를 업데이트할까요?" : plan.targets.contains { $0.kind == .ollama } ? "모델을 지울까요?" : plan.targets.contains { $0.kind == .orphan } ? "고아 잔여물을 옮길까요?"
       : plan.targets.contains { $0.kind == .disk } ? "재다운로드가 비싼 것도 정리할까요?" : "\(plan.title)할까요?"
   }
 
   private var confirmMessage: String {
+    if plan.verb == "업데이트" {
+      var m = "brew·npm·App Store로 \(plan.targets.count)개를 업데이트합니다. 오래 걸릴 수 있고, 켜져 있는 앱은 업데이트하면서 종료될 수 있습니다."
+      if !plan.held.isEmpty { m += " 빼 둔 \(plan.held.count)개(런타임 메이저·고정·관리자 암호 필요 등)는 하지 않습니다." }
+      if plan.targets.contains(where: { $0.kind == .brewCask && SelfIdentity.current().isSelf(caskToken: $0.name) }) { m += " MacInv 자신은 맨 마지막에 하고, 끝나면 다시 시작해야 합니다." }
+      return m
+    }
     if plan.targets.contains(where: { $0.kind == .ollama }) { return "ollama rm은 휴지통을 거치지 않습니다 — 다시 쓰려면 모델을 다시 받아야 합니다." }
-    if plan.targets.contains(where: { $0.kind == .orphan }) { return "설치된 앱이 없는 것으로 보이는 \(plan.targets.count)개의 파일을 휴지통으로 옮깁니다. 휴지통을 비우기 전엔 되돌릴 수 있습니다." }
+    if plan.targets.contains(where: { $0.kind == .orphan }) {
+      return "지운 앱 \(plan.targets.count)개가 남긴 파일 \(plan.targets.reduce(0) { $0 + $1.trash.count })개를 휴지통으로 옮깁니다. 휴지통을 비우기 전엔 되돌릴 수 있습니다."
+    }
     if plan.targets.contains(where: { $0.kind == .disk }) { return "다시 받는 데 오래 걸리거나 용량이 큰 것이 들어 있습니다." }
     return "앱을 지우면 설정·데이터도 함께 휴지통으로 갑니다. brew가 지우는 것은 휴지통을 거치지 않습니다."
   }

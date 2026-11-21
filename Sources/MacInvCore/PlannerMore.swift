@@ -46,6 +46,8 @@ extension Planner {
       plan.targets.append(t)
     }
     if let selfTarget { plan.targets.append(selfTarget) }
+    // 「모두 업데이트」는 생각 없이 누르기 쉬운 버튼이라 한 번 더 확인한다(CLAUDE.md 규칙 — 2026-11-21 점검에서 빠진 것을 찾음)
+    plan.requireConfirm = everything && !plan.targets.isEmpty
     return plan
   }
 
