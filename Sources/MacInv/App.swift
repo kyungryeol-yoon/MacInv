@@ -22,6 +22,12 @@ struct MacInvApp: App {
   }
 }
 
+struct ShownPlan: Identifiable {
+  let id = UUID()
+  var plan: Plan
+  var measuring: Bool
+}
+
 /// 앱 전체 상태: 명령을 찾을 PATH, 권한, 인벤토리.
 @MainActor
 final class AppModel: ObservableObject {
@@ -51,6 +57,8 @@ final class AppModel: ObservableObject {
   @Published var measuring = false
   /// 데이터 용량 측정 진행(끝낸 앱 수, 전체)
   @Published var measureProgress: (done: Int, total: Int)?
+  /// 지금 보고 있는 정리 계획(읽기 전용 — 실행은 6단계)
+  @Published var shownPlan: ShownPlan?
   private var observers: [NSObjectProtocol] = []
 
   var measuringText: String? {
@@ -126,6 +134,20 @@ final class AppModel: ObservableObject {
         Task { @MainActor in self.measureProgress = (done, total) }
       }
       inventory?.apps = withData; measuring = false; measureProgress = nil
+    }
+  }
+
+  /// 계획을 만들어 보여 주고, 담긴 경로를 잰다(아무것도 지우지 않는다).
+  func showPlan(_ make: (Inventory, Planner.Env) -> Plan) {
+    guard let inv = inventory else { return }
+    let plan = make(inv, Planner.Env(home: NSHomeDirectory(), me: SelfIdentity.current(), running: Running.current()))
+    let shown = ShownPlan(plan: plan, measuring: plan.hasWork)
+    shownPlan = shown
+    guard plan.hasWork else { return }
+    let r = runner
+    Task {
+      let measured = await Planner.measure(plan, runner: r)
+      if shownPlan?.id == shown.id { shownPlan?.plan = measured; shownPlan?.measuring = false }
     }
   }
 

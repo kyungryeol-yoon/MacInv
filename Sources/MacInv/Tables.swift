@@ -8,18 +8,38 @@ import MacInvCore
 struct FilterBar<F: Hashable>: View {
   let options: [(value: F, title: String, count: Int)]
   @Binding var selection: F
+  /// 있으면 오른쪽에 "삭제 계획 보기" (nil 안의 nil = 고른 줄 없음)
+  var plan: PlanButton? = nil
   var body: some View {
     HStack {
-      Picker("보기", selection: $selection) {
-        ForEach(options, id: \.value) { o in Text("\(o.title) \(o.count)").tag(o.value) }
+      if !options.isEmpty {
+        Picker("보기", selection: $selection) {
+          ForEach(options, id: \.value) { o in Text("\(o.title) \(o.count)").tag(o.value) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
       }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .fixedSize()
       Spacer()
+      if let plan { plan }
     }
     .padding(.horizontal, 12).padding(.vertical, 8)
   }
+}
+
+/// 고른 줄의 삭제 계획 보기(읽기 전용). 더블클릭·엔터에는 묶지 않는다 — 기본 동작이 삭제로 이어지면 안 된다.
+struct PlanButton: View {
+  let action: (() -> Void)?
+  var body: some View {
+    Button { action?() } label: { Label("삭제 계획 보기…", systemImage: "list.bullet.clipboard") }
+      .disabled(action == nil)
+      .help(action == nil ? "표에서 한 줄을 고르세요" : "무엇을 지우고 무엇을 남기는지 보여 줍니다 — 아직 지우지 않습니다")
+  }
+}
+
+/// 표 줄 오른쪽 클릭 메뉴
+func planMenu(_ run: (() -> Void)?) -> some View {
+  Group { if let run { Button("삭제 계획 보기…", action: run) } }
 }
 
 /// 🔒 — 지우지 않는 것.
@@ -38,7 +58,14 @@ struct AppsTable: View {
   enum Filter: Hashable { case all, other, appStore, brew, apple }
   @State private var filter = Filter.all
   @State private var order = [KeyPathComparator(\AppItem.name, comparator: .localizedStandard)]
+  @State private var selection: AppItem.ID?
+  @EnvironmentObject private var model: AppModel
   private let me = SelfIdentity.current()
+
+  private func planAction(_ id: AppItem.ID?) -> (() -> Void)? {
+    guard let id, let a = apps.first(where: { $0.id == id }) else { return nil }
+    return { model.showPlan { Planner.removal(app: a, inventory: $0, env: $1) } }
+  }
 
   private func kind(_ a: AppItem) -> Filter {
     switch a.origin { case .apple: return .apple; case .appStore: return .appStore; case .brewCask: return .brew; case .other: return .other }
@@ -49,8 +76,9 @@ struct AppsTable: View {
       FilterBar(options: [(.all, "전체", apps.count), (.other, "직접 설치", apps.filter { kind($0) == .other }.count),
                           (.appStore, "App Store", apps.filter { kind($0) == .appStore }.count),
                           (.brew, "Homebrew", apps.filter { kind($0) == .brew }.count),
-                          (.apple, "Apple(보호)", apps.filter { kind($0) == .apple }.count)], selection: $filter)
-      Table(apps.filter { filter == .all || kind($0) == filter }.sorted(using: order), sortOrder: $order) {
+                          (.apple, "Apple(보호)", apps.filter { kind($0) == .apple }.count)], selection: $filter,
+                plan: PlanButton(action: planAction(selection)))
+      Table(apps.filter { filter == .all || kind($0) == filter }.sorted(using: order), selection: $selection, sortOrder: $order) {
         TableColumn("이름", value: \.name, comparator: .localizedStandard) { a in
           HStack(spacing: 8) {
             Image(nsImage: NSWorkspace.shared.icon(forFile: a.path)).resizable().frame(width: 18, height: 18)
@@ -81,6 +109,7 @@ struct AppsTable: View {
           .width(min: 120, ideal: 200)
         TableColumn("번들 ID", value: \.bundleID.orDash) { a in Text(a.bundleID ?? "—").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
       }
+      .contextMenu(forSelectionType: AppItem.ID.self) { ids in planMenu(planAction(ids.first)) }
     }
   }
 }
@@ -107,6 +136,13 @@ struct FormulaeTable: View {
   enum Filter: Hashable { case all, onRequest, dependency, unused }
   @State private var filter = Filter.all
   @State private var order = [KeyPathComparator(\FormulaRow.name)]
+  @State private var selection: FormulaRow.ID?
+  @EnvironmentObject private var model: AppModel
+
+  private func planAction(_ id: FormulaRow.ID?) -> (() -> Void)? {
+    guard let id, let f = all.first(where: { $0.name == id }) else { return nil }
+    return { model.showPlan { Planner.removal(formula: f, inventory: $0, env: $1) } }
+  }
 
   var body: some View {
     let users = BrewGraph.dependents(all)
@@ -115,12 +151,12 @@ struct FormulaeTable: View {
     VStack(spacing: 0) {
       FilterBar(options: [(.all, "전체", rows.count), (.onRequest, "직접 설치", rows.filter(\.f.onRequest).count),
                           (.dependency, "의존성", rows.filter { !$0.f.onRequest }.count), (.unused, "아무도 안 씀", unused.count)],
-                selection: $filter)
+                selection: $filter, plan: PlanButton(action: planAction(selection)))
       if filter == .unused {
         Label("의존성으로 깔렸는데 이제 이걸 쓰는 포뮬러가 없습니다 — brew autoremove 대상입니다.", systemImage: "info.circle")
           .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 6)
       }
-      Table(rows.filter(match).sorted(using: order), sortOrder: $order) {
+      Table(rows.filter(match).sorted(using: order), selection: $selection, sortOrder: $order) {
         TableColumn("이름", value: \.name) { r in
           HStack(spacing: 4) {
             Text(r.name)
@@ -141,6 +177,7 @@ struct FormulaeTable: View {
           Text(r.f.dependencies.isEmpty ? "—" : r.f.dependencies.joined(separator: ", ")).foregroundStyle(.secondary).lineLimit(1)
         }
       }
+      .contextMenu(forSelectionType: FormulaRow.ID.self) { ids in planMenu(planAction(ids.first)) }
     }
   }
 
@@ -161,11 +198,30 @@ extension BrewCask { var versionText: String { version ?? "—" }; var appsText:
 struct CasksTable: View {
   let items: [BrewCask]
   @State private var order = [KeyPathComparator(\BrewCask.token)]
+  @State private var selection: BrewCask.ID?
+  @State private var none = 0
+  @EnvironmentObject private var model: AppModel
+  private let me = SelfIdentity.current()
+
+  private func planAction(_ id: BrewCask.ID?) -> (() -> Void)? {
+    guard let id, let c = items.first(where: { $0.id == id }) else { return nil }
+    return { model.showPlan { Planner.removal(cask: c, inventory: $0, env: $1) } }
+  }
+
   var body: some View {
-    Table(items.sorted(using: order), sortOrder: $order) {
-      TableColumn("이름", value: \.token)
-      TableColumn("버전", value: \.versionText) { c in Text(c.versionText).foregroundStyle(.secondary) }
-      TableColumn("설치한 앱", value: \.appsText) { c in Text(c.appNames.isEmpty ? "—" : c.appsText) }
+    VStack(spacing: 0) {
+      FilterBar(options: [(Int, String, Int)](), selection: $none, plan: PlanButton(action: planAction(selection)))
+      Table(items.sorted(using: order), selection: $selection, sortOrder: $order) {
+        TableColumn("이름", value: \.token) { c in
+          HStack(spacing: 4) {
+            Text(c.token)
+            if me.isSelf(caskToken: c.token) { LockBadge(text: "MacInv 자신입니다 — 정리 대상에서 뺍니다.\n\n지우려면 터미널에서 brew uninstall --cask macinv") }
+          }
+        }
+        TableColumn("버전", value: \.versionText) { c in Text(c.versionText).foregroundStyle(.secondary) }
+        TableColumn("설치한 앱", value: \.appsText) { c in Text(c.appNames.isEmpty ? "—" : c.appsText) }
+      }
+      .contextMenu(forSelectionType: BrewCask.ID.self) { ids in planMenu(planAction(ids.first)) }
     }
   }
 }
@@ -178,6 +234,13 @@ struct PackagesTable: View {
   let items: [PackageItem]
   @State private var filter: PackageManager? = nil
   @State private var order = [KeyPathComparator(\PackageItem.name)]
+  @State private var selection: PackageItem.ID?
+  @EnvironmentObject private var model: AppModel
+
+  private func planAction(_ id: PackageItem.ID?) -> (() -> Void)? {
+    guard let id, let p = items.first(where: { $0.id == id }) else { return nil }
+    return { model.showPlan { Planner.removal(package: p, inventory: $0, env: $1) } }
+  }
 
   var body: some View {
     if items.isEmpty {
@@ -186,13 +249,14 @@ struct PackagesTable: View {
       let present = PackageManager.allCases.filter { m in items.contains { $0.manager == m } }
       VStack(spacing: 0) {
         FilterBar(options: [(nil, "전체", items.count)] + present.map { m in (Optional(m), m.label, items.filter { $0.manager == m }.count) },
-                  selection: $filter)
-        Table(items.filter { filter == nil || $0.manager == filter }.sorted(using: order), sortOrder: $order) {
+                  selection: $filter, plan: PlanButton(action: planAction(selection)))
+        Table(items.filter { filter == nil || $0.manager == filter }.sorted(using: order), selection: $selection, sortOrder: $order) {
           TableColumn("이름", value: \.name)
           TableColumn("버전", value: \.versionText) { p in Text(p.versionText).foregroundStyle(.secondary) }
           TableColumn("관리자", value: \.managerText) { p in Text(p.managerText) }
           TableColumn("경로", value: \.pathText) { p in Text(p.pathText).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
         }
+        .contextMenu(forSelectionType: PackageItem.ID.self) { ids in planMenu(planAction(ids.first)) }
       }
     }
   }

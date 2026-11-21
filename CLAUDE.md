@@ -31,7 +31,7 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - `Sources/MacInvCore/` — 로직(화면 없음, 테스트 대상). `Command.swift`(실행기: 타임아웃, 미설치=`notFound`, 읽기는 stdout 있으면 성공·`strict`는 종료 코드로만), `SearchPath.swift`(GUI 앱 PATH = 로그인 셸 `-ilc`에서 표식으로 받아온 PATH → 알려진 위치), `Permissions.swift`(전체 디스크 접근 — 보호 경로를 실제로 열어 판정, 안내 판정 `notice`는 순수 함수), `SelfIdentity.swift`(자기 자신 판정: 번들 ID·번들 경로·`/Applications/MacInv.app`·데이터 경로·cask `macinv`)
 - `Sources/MacInv/` — 메뉴 막대 화면(SwiftUI)
 - `Tests/MacInvCoreTests/`
-- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 다음 5 정리 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
+- 진행: 0단계(뼈대·아이콘) ✅ · 1단계(기반) ✅ · 2단계(인벤토리: 앱·brew·패키지·런타임·백그라운드 항목·앱 데이터 용량) ✅ · 3단계(업데이트 대기·런타임 EOL, EOL 캐시는 `~/Library/Caches/<번들 ID>/eol-cache.json`) ✅ · 4단계(디스크: 위치·고아 캐시·실행 중 보호·심볼릭 링크/외장 볼륨·스냅샷·Ollama 모델, 표 정렬·분류·🔒) ✅ · 5-1(삭제 계획: 앱·brew·패키지, `Plan.swift`·`Planner.swift`, 계획 시트) ✅ · 다음 5-2 고아 잔여물·디스크·Ollama·업데이트 계획 → 6 실행 → 7 배포. 단계마다 이 맥에서 실행해 확인받고, Go판 `--json`과 대조
 - 화면: 메뉴 막대는 요약·바로가기(창 열기·다시 스캔·권한 안내 — 단계마다 "손댈 게 있나"를 늘려 간다), 목록은 별도 창(왼쪽 분류 + 표)
 - `Paths.swift`는 측정(`sizePaths`)과 삭제 계획(`leftovers`, 5단계)이 **같이 쓰는 한 벌**. glob을 쓰지 않고 폴더 목록을 문자열로 비교(이름의 `[`·`*`·`?`가 패턴이 될 수 없음). 벤더 표는 `Vendors.swift`의 JSON 문자열(SwiftPM 리소스 번들은 .app 서명과 안 맞음)
 - **실행기 교훈(2026-11-21 실측)**: `Process.waitUntilExit()` 금지 — 시작한 스레드의 런루프로 종료를 받는데 `await` 뒤 다른 스레드에서 이어지면 영영 못 받고 멈춘다(앱 6개 동시 측정이 10분 넘게 멈춤). 종료는 `terminationHandler`(run() 전에), 블로킹 파이프 읽기는 GCD 스레드에서(동시성 풀을 막으면 동시 실행이 많을 때 전체가 멈춤). 회귀 테스트: 40개 동시 실행
@@ -63,6 +63,8 @@ open build/MacInv.app      # 설치 없이 실행 · ./build.sh install 이면 /
 - **Bundle ID 접두사가 다른 앱을 삼키지 않게**(6-1, 데이터 손실 직전): `com.google.Chrome*`가 `com.google.Chrome.canary`를 [확실]로 잡았다. 경로에서 뽑은 파생 ID가 **설치된 다른 앱에 귀속**되면 빼고 "타 앱(<이름>) 소유 — 보존" 표시. 귀속은 **가장 긴 ID가 이긴다**(둘 다 깔린 상태에서 canary 삭제 시 canary 파생물이 Chrome 것으로 오판되면 안 됨). **어느 앱도 소유하지 않는 파생물(`.helper` 등)은 남겨서 지운다** — 이 구분이 핵심 (`clean.excludeOtherAppIDs`/`ownerOfID`, `TestLeftoversDoNotSwallowOtherApp`)
 - **앱 이름은 패턴이 아니다**(6-2): 이름 기반 경로는 리터럴 존재 확인. `"Foo [beta]"`를 glob으로 쓰면 `Foo b`를 삼킨다. 패턴에 끼우는 가변 부분(Bundle ID)은 이스케이프
 - **이름 매칭은 정확 일치 우선**, 없을 때만 부분일치 + "이름 부분일치" 경고 (`clean.matchApps`)
+- **못 옮기는 이유는 두 가지로 나눈다**(2026-11-21 실측): 내 소유인데 쓰기가 막힌 것(`Claude.app`·`Chrome.app` 같은 다른 개발자 앱 번들 = macOS 「앱 관리」 보호, 다른 앱 데이터 폴더 = 앱 데이터 보호)은 **관리자 암호로 안 풀리고** MacInv에 권한을 줘야 한다 → 🛡 + 설정 열기. root 소유(pkg로 깐 앱·`/Library/LaunchDaemons`)는 🔑 관리자 필요. 판정은 MacInv 프로세스 기준이라 터미널에서 잰 결과와 다를 수 있다 (`Planner.trashAccess`)
+- **파생 앱은 벤더의 다른 앱이 아니다**: Chrome 웹 앱(`com.google.Chrome.app.…`, `~/Applications/Chrome Apps.localized`)을 "다른 Google 앱"으로 세면 Chrome 계획이 Google 폴더를 공유 중으로 오판한다(실측)
 - **권한 없는 경로는 미리 분리**(6-10): 부모 디렉토리에 쓰기 권한이 없으면(`/Library/LaunchDaemons/...`, root 소유 `/Applications/Utilities` 아래 앱) "🔑 권한 필요(수동)"로 따로 표시하고 실행·회수 예상에서 뺀다. 실패할 걸 알면서 시도하지 않는다 (`clean/permission.go`)
 - **벤더 폴더**(Google·Microsoft·Adobe·JetBrains…): 같은 벤더의 다른 앱이 설치돼 있으면 `<Vendor>/<App>`만 [확신낮음]으로, 공유 컴포넌트(Keystone 등)는 "타 앱 사용 중"으로 보존. 그 벤더 앱이 마지막이면 폴더 전체+고아 공유 컴포넌트를 [확신중간]으로 (`clean/vendor.go`, `vendors.json`)
 - 잔여물은 Bundle ID 접두사로 헬퍼·파생 파일(`.ShipIt`, `.helper.plist`)·Group Containers·Cookies·ByHost·`/Library`까지 찾는다. 부모에 이미 포함된 경로는 뺀다 (`paths.gatherLeftovers`)
