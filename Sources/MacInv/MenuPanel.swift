@@ -107,9 +107,10 @@ struct MenuPanel: View {
           PanelBadge(symbol: "lock.shield.fill", color: .orange)
           VStack(alignment: .leading, spacing: 2) {
             Text(model.notice == .lostAfterUpdate ? "전체 디스크 접근이 풀렸습니다" : "전체 디스크 접근 꺼짐").font(.callout.weight(.semibold))
-            Text(model.notice == .lostAfterUpdate ? "업데이트 후 생길 수 있어요 — 목록에서 MacInv를 지운 뒤 다시 추가하세요"
-                                                   : "목록은 그대로 보입니다. 다른 앱의 보호 폴더 용량만 일부만 잽니다")
-              .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            // 문장마다 줄을 바꾼다 — 한 줄로 이어 붙이면 좁은 카드에서 읽기 어렵다(2026-11-22 사용자 요청)
+            Text(model.notice == .lostAfterUpdate ? "업데이트 후에 풀릴 수 있습니다.\n목록에서 MacInv를 지운 뒤 다시 추가하세요."
+                                                   : "목록은 그대로 보입니다.\n다른 앱의 보호 폴더는 용량을 일부만 잽니다.")
+              .font(.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
           }
         }
         HStack {
